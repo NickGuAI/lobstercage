@@ -1,4 +1,4 @@
-// OpenClaw plugin source — this file gets written to ~/.openclaw/plugins/lobstercage/
+// OpenClaw plugin source — this file gets written to ~/.openclaw/extensions/lobstercage/
 // It runs inside OpenClaw's plugin runtime, so it must be self-contained.
 
 export const PLUGIN_SOURCE = `

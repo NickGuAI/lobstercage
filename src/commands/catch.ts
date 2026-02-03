@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { matrixRain, printBanner, style } from "../ui/matrix.js";
+import { matrixFlow, printHeader, Spinner, style } from "../ui/matrix.js";
 import { renderReport, serializeReport } from "../ui/report.js";
 import { getPiiRules, getContentRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
@@ -26,20 +26,20 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     return;
   }
 
-  // Matrix intro
-  if (process.stdout.isTTY) {
-    await matrixRain(2000);
-  }
-  printBanner();
+  // Matrix intro animation
+  await matrixFlow(1200);
+  printHeader();
 
   const rules = loadRules(options.configPath);
 
   // Phase 1: Forensic scan
   if (!options.guardOnly) {
-    console.log(style.tag("SCAN") + " " + style.bold("Phase 1: Forensic Session Scan"));
-    console.log();
+    const spinner = new Spinner("Scanning sessions...");
+    spinner.start();
 
     const report = await forensicScan(rules);
+
+    spinner.stop("Scan complete");
     console.log();
 
     renderReport(report);
@@ -48,20 +48,20 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     if (options.reportPath) {
       const text = serializeReport(report);
       await writeFile(options.reportPath, text, "utf-8");
-      console.log(style.tag("SCAN") + " " + style.dark(`Report written to ${options.reportPath}`));
+      console.log(style.dim(`  Report saved to ${options.reportPath}`));
       console.log();
     }
   }
 
   // Phase 2: Install live guard
   if (!options.scanOnly) {
-    console.log(style.tag("GUARD") + " " + style.bold("Phase 2: Installing Live Guard"));
-    console.log();
+    const guardSpinner = new Spinner("Installing live guard...");
+    guardSpinner.start();
+
     await installGuard();
+
+    guardSpinner.stop("Guard installed");
+    console.log(style.dim("  Outgoing messages will be scanned in real-time"));
     console.log();
   }
-
-  // Summary
-  console.log(style.bold("  ── Done ──"));
-  console.log();
 }

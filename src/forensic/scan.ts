@@ -4,14 +4,26 @@ import type { ScanRule, SessionViolation, ScanReport } from "../scanner/types.js
 import { scanContent } from "../scanner/engine.js";
 import { discoverSessionFiles } from "./discover.js";
 import { buildReport } from "./report.js";
-import { writeProgress } from "../ui/matrix.js";
+
+type MessageContent = {
+  type?: string;
+  text?: string;
+  thinking?: string;
+};
+
+type NestedMessage = {
+  role?: string;
+  content?: string | MessageContent[];
+};
 
 type JsonlEntry = {
   role?: string;
   content?: string;
   type?: string;
+  id?: string;
   sessionId?: string;
   timestamp?: string;
+  message?: NestedMessage;
   [key: string]: unknown;
 };
 
@@ -30,11 +42,14 @@ function parseJsonl(text: string): JsonlEntry[] {
   return entries;
 }
 
-/** Extract text content from a message entry (handles string and array content) */
+/** Extract text content from a message entry (handles OpenClaw's nested format) */
 function extractContent(entry: JsonlEntry): string {
-  if (typeof entry.content === "string") return entry.content;
-  if (Array.isArray(entry.content)) {
-    return (entry.content as Array<{ text?: string }>)
+  // OpenClaw format: { type: "message", message: { role, content } }
+  const content = entry.message?.content ?? entry.content;
+  
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
       .map((block) => block.text ?? "")
       .join("\n");
   }
@@ -50,7 +65,6 @@ export async function forensicScan(rules: ScanRule[]): Promise<ScanReport> {
 
   for (let i = 0; i < sessionFiles.length; i++) {
     const filePath = sessionFiles[i];
-    writeProgress(i + 1, sessionFiles.length, `Scanning sessions...`);
 
     try {
       const text = await readFile(filePath, "utf-8");
@@ -61,8 +75,10 @@ export async function forensicScan(rules: ScanRule[]): Promise<ScanReport> {
       const sessionId = header?.sessionId ?? basename(filePath, ".jsonl");
       const timestamp = header?.timestamp ?? "";
 
-      // Scan assistant messages
-      const messages = entries.filter((e) => e.role === "assistant");
+      // Scan assistant messages (OpenClaw format: type=message with nested message.role)
+      const messages = entries.filter(
+        (e) => e.type === "message" && e.message?.role === "assistant"
+      );
       totalMessages += messages.length;
 
       for (let mi = 0; mi < messages.length; mi++) {
