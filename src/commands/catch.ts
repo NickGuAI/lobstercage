@@ -2,11 +2,13 @@ import { writeFile } from "node:fs/promises";
 import { matrixFlow, printHeader, Spinner, style } from "../ui/matrix.js";
 import { renderReport, serializeReport } from "../ui/report.js";
 import { renderAuditReport, renderFixResults, serializeAuditReport } from "../ui/audit-report.js";
+import { confirm, reviewViolations, confirmRedactions } from "../ui/interactive.js";
 import { getPiiRules, getContentRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
+import { applyRedactions } from "../forensic/redact.js";
 import { installGuard, uninstallGuard } from "../guard/install.js";
 import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
-import type { ScanRule } from "../scanner/types.js";
+import type { ScanRule, ScanReport } from "../scanner/types.js";
 import type { AuditResult } from "../audit/types.js";
 
 export type CatchOptions = {
@@ -14,6 +16,7 @@ export type CatchOptions = {
   guardOnly: boolean;
   auditOnly: boolean;
   fix: boolean;
+  interactive: boolean;
   uninstall: boolean;
   reportPath: string | null;
   configPath: string | null;
@@ -22,6 +25,74 @@ export type CatchOptions = {
 function loadRules(_configPath: string | null): ScanRule[] {
   // Future: load custom rules from config file
   return [...getPiiRules(), ...getContentRules()];
+}
+
+/** Handle interactive redaction flow */
+async function handleInteractiveRedaction(report: ScanReport): Promise<void> {
+  if (report.violations.length === 0) {
+    return;
+  }
+
+  console.log();
+  const shouldReview = await confirm(
+    style.warn(`  Found ${report.violations.length} PII violation(s).`) +
+      " Would you like to review and redact them?",
+    true
+  );
+
+  if (!shouldReview) {
+    console.log(style.dim("  Skipping redaction"));
+    return;
+  }
+
+  // Enter interactive review mode
+  const decisions = await reviewViolations(report.violations);
+
+  // Check if user wants to quit
+  if ([...decisions.values()].includes("quit")) {
+    console.log(style.dim("  Review cancelled"));
+    return;
+  }
+
+  // Confirm redactions
+  const shouldRedact = await confirmRedactions(decisions);
+
+  if (!shouldRedact) {
+    console.log(style.dim("  Redaction cancelled"));
+    return;
+  }
+
+  // Apply redactions
+  const spinner = new Spinner("Applying redactions...");
+  spinner.start();
+
+  const results = await applyRedactions(decisions);
+
+  spinner.stop("Redactions applied");
+  console.log();
+
+  // Show results
+  const successful = results.filter((r) => r.success);
+  const failed = results.filter((r) => !r.success);
+
+  if (successful.length > 0) {
+    console.log(style.bright(`  ✓ Redacted ${successful.reduce((sum, r) => sum + r.messagesRedacted, 0)} message(s)`));
+    for (const r of successful) {
+      const shortPath = r.file.replace(process.env.HOME || "", "~");
+      const shortBackup = r.backupPath.replace(process.env.HOME || "", "~");
+      console.log(style.dim(`     ${shortPath}`));
+      console.log(style.muted(`     Backup: ${shortBackup}`));
+    }
+    console.log();
+  }
+
+  if (failed.length > 0) {
+    console.log(style.error(`  ✗ ${failed.length} file(s) failed`));
+    for (const r of failed) {
+      console.log(style.dim(`     ${r.file}: ${r.error}`));
+    }
+    console.log();
+  }
 }
 
 export async function runCatch(options: CatchOptions): Promise<void> {
@@ -84,6 +155,19 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     console.log();
 
     renderReport(report);
+
+    // Interactive redaction mode
+    if (options.interactive && report.violations.length > 0) {
+      await handleInteractiveRedaction(report);
+    } else if (report.violations.length > 0 && !options.interactive) {
+      // Offer to enter interactive mode
+      console.log(
+        style.dim("  Run with ") +
+          style.bright("--interactive") +
+          style.dim(" to review and redact violations")
+      );
+      console.log();
+    }
 
     // Write combined report to file if requested
     if (options.reportPath) {

@@ -74,7 +74,11 @@ module.exports = {
   description: "Scans outgoing messages for PII and policy violations",
 
   register(api) {
-    api.on("message_sending", async (event) => {
+    // Correct signature: (event, ctx) => result | void
+    // event: { to, content, metadata }
+    // ctx: { channelId, accountId, conversationId }
+    // result: { content?, cancel? }
+    api.on("message_sending", (event, ctx) => {
       const content = typeof event.content === "string" ? event.content : JSON.stringify(event.content);
       const violations = scanContent(content);
       if (violations.length === 0) return;
@@ -84,7 +88,8 @@ module.exports = {
         return severity[v.action] > severity[max] ? v.action : max;
       }, "warn");
 
-      console.error("[lobstercage] " + violations.length + " violation(s) detected: " + violations.map(v => v.ruleId).join(", "));
+      const recipient = event.to || ctx.conversationId || "unknown";
+      api.logger.warn("[lobstercage] " + violations.length + " violation(s) in message to " + recipient + ": " + violations.map(v => v.ruleId).join(", "));
 
       if (maxAction === "warn") return;
       return { cancel: true };

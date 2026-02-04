@@ -20,6 +20,8 @@ Catch Options:
   --guard-only    Only install live guard (no audit, no forensic scan)
   --audit-only    Only run config audit (no forensic scan, no guard)
   --fix           Auto-fix remediable security issues
+  --interactive   Interactive mode: review and redact PII violations
+  -i              Shorthand for --interactive
   --report <path> Write report to file
   --config <path> Custom config file path
   --uninstall     Remove the lobstercage guard plugin
@@ -33,6 +35,7 @@ Audit Options:
 Examples:
   lobstercage catch              # Full scan + guard install
   lobstercage catch --fix        # Full scan + auto-fix + guard
+  lobstercage catch -i           # Interactive mode: review & redact PII
   lobstercage audit              # Config audit only
   lobstercage audit --fix        # Config audit + auto-fix
   lobstercage catch --uninstall  # Remove guard plugin
@@ -48,6 +51,7 @@ function main(): void {
       "guard-only": { type: "boolean", default: false },
       "audit-only": { type: "boolean", default: false },
       fix: { type: "boolean", default: false },
+      interactive: { type: "boolean", short: "i", default: false },
       deep: { type: "boolean", default: false },
       report: { type: "string" },
       config: { type: "string" },
@@ -81,6 +85,7 @@ function main(): void {
       guardOnly: values["guard-only"] ?? false,
       auditOnly: values["audit-only"] ?? false,
       fix: values.fix ?? false,
+      interactive: values.interactive ?? false,
       uninstall: values.uninstall ?? false,
       reportPath: values.report ?? null,
       configPath: values.config ?? null,
