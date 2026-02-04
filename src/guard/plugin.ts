@@ -96,19 +96,14 @@ module.exports = {
   description: "Scans outgoing messages for PII and policy violations",
 
   register(api) {
-    api.logger.info("[lobstercage] Guard plugin register() called");
-    api.logger.info("[lobstercage] api.on type: " + typeof api.on);
-
     try {
       // Hook 1: before_agent_start - Inject security directive (prevention layer)
       // This prepends context to the system prompt to instruct the AI to avoid outputting PII
       api.on("before_agent_start", (event, ctx) => {
-        api.logger.info("[lobstercage] before_agent_start hook fired");
         return {
           prependContext: SECURITY_DIRECTIVE,
         };
       });
-      api.logger.info("[lobstercage] before_agent_start hook registered successfully");
 
       // Hook 2: message_sending - Block explicit message tool calls (existing behavior)
       // Correct signature: (event, ctx) => result | void
@@ -117,13 +112,8 @@ module.exports = {
       // result: { content?, cancel? }
       api.on("message_sending", (event, ctx) => {
         const recipient = event.to || ctx.conversationId || "unknown";
-        api.logger.info("[lobstercage] message_sending hook fired for: " + recipient);
-
         const content = typeof event.content === "string" ? event.content : JSON.stringify(event.content);
-        api.logger.info("[lobstercage] Content length: " + content.length);
-
         const violations = scanContent(content);
-        api.logger.info("[lobstercage] Violations found: " + violations.length);
 
         if (violations.length === 0) return;
 
@@ -137,17 +127,11 @@ module.exports = {
         if (maxAction === "warn") return;
         return { cancel: true };
       });
-      api.logger.info("[lobstercage] message_sending hook registered successfully");
 
       // Hook 3: agent_end - Scan completed responses (detection layer)
       // This cannot block delivery, but logs violations for auditing
       api.on("agent_end", (event, ctx) => {
-        api.logger.info("[lobstercage] agent_end hook fired, success: " + event.success);
-
-        if (!event.success || !event.messages) {
-          api.logger.info("[lobstercage] agent_end: no messages to scan");
-          return;
-        }
+        if (!event.success || !event.messages) return;
 
         for (const msg of event.messages) {
           if (msg.role !== "assistant") continue;
@@ -158,13 +142,10 @@ module.exports = {
           const violations = scanContent(content);
 
           if (violations.length > 0) {
-            // Log violation - user already saw the message (cannot block at this point)
             api.logger.warn("[lobstercage] PII violation detected in AI response: " + violations.map(v => v.ruleId).join(", "));
-            // Future: could write to audit log, send webhook alert, etc.
           }
         }
       });
-      api.logger.info("[lobstercage] agent_end hook registered successfully");
 
     } catch (err) {
       api.logger.error("[lobstercage] Failed to register hook: " + String(err));
