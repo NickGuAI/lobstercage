@@ -1,6 +1,6 @@
 {
   "name": "lobstercage",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Security scanner and live guard for OpenClaw — PII and content policy enforcement",
   "type": "module",
   "bin": {
