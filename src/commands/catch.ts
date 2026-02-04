@@ -8,8 +8,10 @@ import { forensicScan } from "../forensic/scan.js";
 import { applyRedactions } from "../forensic/redact.js";
 import { installGuard, uninstallGuard } from "../guard/install.js";
 import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
+import { recordScanEvent } from "../stats/storage.js";
 import type { ScanRule, ScanReport } from "../scanner/types.js";
 import type { AuditResult } from "../audit/types.js";
+import type { ViolationEvent } from "../stats/types.js";
 
 export type CatchOptions = {
   scanOnly: boolean;
@@ -126,6 +128,20 @@ export async function runCatch(options: CatchOptions): Promise<void> {
 
     renderAuditReport(auditResult);
 
+    // Record audit stats
+    const auditViolations: ViolationEvent[] = [];
+    for (const finding of auditResult.findings) {
+      auditViolations.push({
+        ruleId: `audit-${finding.id}`,
+        category: "content",
+        action: finding.severity === "critical" ? "block" : "warn",
+        count: 1,
+      });
+    }
+    if (auditViolations.length > 0) {
+      await recordScanEvent("audit", auditViolations);
+    }
+
     // Apply fixes if requested
     if (options.fix) {
       const fixable = getFixableFindings(auditResult);
@@ -153,6 +169,25 @@ export async function runCatch(options: CatchOptions): Promise<void> {
 
     spinner.stop("Scan complete");
     console.log();
+
+    // Record forensic scan stats
+    const forensicViolationEvents: ViolationEvent[] = [];
+    const violationCounts: Record<string, { category: "pii" | "content"; action: "warn" | "block" | "shutdown"; count: number }> = {};
+    for (const v of report.violations) {
+      if (!violationCounts[v.ruleId]) {
+        violationCounts[v.ruleId] = { category: v.category, action: v.action, count: 0 };
+      }
+      violationCounts[v.ruleId].count++;
+    }
+    for (const [ruleId, data] of Object.entries(violationCounts)) {
+      forensicViolationEvents.push({
+        ruleId,
+        category: data.category,
+        action: data.action,
+        count: data.count,
+      });
+    }
+    await recordScanEvent("forensic", forensicViolationEvents);
 
     renderReport(report);
 

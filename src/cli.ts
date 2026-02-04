@@ -3,6 +3,7 @@
 import { parseArgs } from "node:util";
 import { runCatch, type CatchOptions } from "./commands/catch.js";
 import { runAuditCommand, type AuditCommandOptions } from "./commands/audit.js";
+import { runStatus, type StatusOptions } from "./commands/status.js";
 
 const USAGE = `
 lobstercage — OpenClaw Security Scanner
@@ -10,10 +11,12 @@ lobstercage — OpenClaw Security Scanner
 Usage:
   lobstercage catch [options]    Full security scan (audit + forensic + guard)
   lobstercage audit [options]    Config-only security audit
+  lobstercage status [options]   Show stats and open dashboard
 
 Commands:
   catch           Run full security scan and install live guard
   audit           Run config security audit only
+  status          Show scan statistics and guard status
 
 Catch Options:
   --scan-only     Only run forensic scan (no audit, no guard install)
@@ -32,6 +35,12 @@ Audit Options:
   --report <path> Write report to file
   --config <path> Custom config file path
 
+Status Options:
+  --json          Output stats as JSON
+  --dashboard     Open web dashboard
+  --port <n>      Dashboard port (default: 8888)
+  --days <n>      Stats for last N days (default: 7)
+
 Examples:
   lobstercage catch              # Full scan + guard install
   lobstercage catch --fix        # Full scan + auto-fix + guard
@@ -39,6 +48,8 @@ Examples:
   lobstercage audit              # Config audit only
   lobstercage audit --fix        # Config audit + auto-fix
   lobstercage catch --uninstall  # Remove guard plugin
+  lobstercage status             # Show scan stats
+  lobstercage status --dashboard # Open web dashboard
 
   --help          Show this help message
 `;
@@ -57,6 +68,11 @@ function main(): void {
       config: { type: "string" },
       uninstall: { type: "boolean", default: false },
       help: { type: "boolean", default: false },
+      // Status options
+      json: { type: "boolean", default: false },
+      dashboard: { type: "boolean", default: false },
+      port: { type: "string", default: "8888" },
+      days: { type: "string", default: "7" },
     },
   });
 
@@ -92,6 +108,18 @@ function main(): void {
     };
 
     runCatch(options).catch((err) => {
+      console.error("Fatal error:", err);
+      process.exit(1);
+    });
+  } else if (command === "status") {
+    const options: StatusOptions = {
+      json: values.json ?? false,
+      dashboard: values.dashboard ?? false,
+      port: parseInt(values.port as string, 10) || 8888,
+      days: parseInt(values.days as string, 10) || 7,
+    };
+
+    runStatus(options).catch((err) => {
       console.error("Fatal error:", err);
       process.exit(1);
     });
