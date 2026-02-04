@@ -1,10 +1,10 @@
 {
   "name": "lobstercage",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Security scanner and live guard for OpenClaw — PII and content policy enforcement",
   "type": "module",
   "bin": {
-    "lobstercage": "./dist/cli.js"
+    "lobstercage": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
