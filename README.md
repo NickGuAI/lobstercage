@@ -2,7 +2,15 @@
 
 Security scanner and live guard for OpenClaw. It audits your config, scans past sessions for PII/policy violations, and can install a guard plugin that blocks risky outgoing messages in real time.
 
-## Quick start (from source)
+## Quick start
+
+```bash
+npx lobstercage catch
+```
+
+This runs a full security scan and installs the live guard.
+
+### From source
 
 ```bash
 npm install
@@ -46,22 +54,25 @@ lobstercage audit [options]   # Config-only audit
 
 ```bash
 # Full scan + guard install
-lobstercage catch
+npx lobstercage catch
 
 # Full scan + auto-fix
-lobstercage catch --fix
+npx lobstercage catch --fix
 
 # Only scan session history
-lobstercage catch --scan-only
+npx lobstercage catch --scan-only
 
 # Config audit only
-lobstercage audit
+npx lobstercage audit
 
 # Config audit + auto-fix
-lobstercage audit --fix
+npx lobstercage audit --fix
 
 # Uninstall guard plugin
-lobstercage catch --uninstall
+npx lobstercage catch --uninstall
+
+# Use custom OpenClaw location
+OPENCLAW_STATE_DIR=~/my-openclaw npx lobstercage catch
 ```
 
 ## What gets scanned
@@ -72,37 +83,51 @@ lobstercage catch --uninstall
 
 ## Paths and configuration
 
+### Default locations
+
+By default, Lobstercage uses `~/.openclaw` as the OpenClaw state directory:
+
+| Component | Default Path |
+|-----------|--------------|
+| Config | `~/.openclaw/config.json` |
+| Sessions | `~/.openclaw/agents/*/sessions/*.jsonl` |
+| Guard plugin | `~/.openclaw/extensions/lobstercage/` |
+| Credentials | `~/.openclaw/credentials/` |
+
+### Custom state directory
+
+If OpenClaw is installed in a non-standard location, set one of these environment variables:
+
+```bash
+export OPENCLAW_STATE_DIR=/path/to/your/openclaw
+
+# Or the legacy variable name:
+export CLAWDBOT_STATE_DIR=/path/to/your/openclaw
+```
+
+All Lobstercage operations (config audit, forensic scan, guard install) will use this directory.
+
 ### Config search order
 
 If you do not pass `--config`, Lobstercage searches these locations in order:
 
-- `~/.openclaw/config.json`
-- `~/.openclaw/config.json5`
-- `~/.openclaw/config.jsonc`
-- `~/.openclaw/openclaw.json`
-- `./openclaw.json`
-- `./.openclaw.json`
+1. `$OPENCLAW_STATE_DIR/config.json` (if env var is set)
+2. `~/.openclaw/config.json`
+3. `~/.openclaw/config.json5`
+4. `~/.openclaw/config.jsonc`
+5. `~/.openclaw/openclaw.json`
+6. `./openclaw.json` (current directory)
+7. `./.openclaw.json` (current directory)
 
-You can override the OpenClaw state directory with:
+### Guard plugin
 
-- `OPENCLAW_STATE_DIR`
-- `CLAWDBOT_STATE_DIR`
+The guard plugin is installed to `{stateDir}/extensions/lobstercage/` and provides three layers of protection:
 
-This affects where configs and extensions are loaded from.
-
-### Forensic scan location
-
-Session scans currently look in:
-
-- `~/.openclaw/agents/*/sessions/*.jsonl`
-
-(There is no state-dir override for forensic scans at the moment.)
-
-### Guard plugin location
-
-The guard plugin is installed to:
-
-- `~/.openclaw/extensions/lobstercage`
+| Hook | Function |
+|------|----------|
+| `before_agent_start` | Injects a security directive instructing the AI not to output PII |
+| `message_sending` | Blocks outgoing messages containing detected PII (SSN, credit cards, API keys) |
+| `agent_end` | Logs any violations that slip through for auditing |
 
 ## Auto-fix behavior
 
