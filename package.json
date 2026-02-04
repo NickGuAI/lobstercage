@@ -1,6 +1,6 @@
 {
   "name": "lobstercage",
-  "version": "0.1.1",
+  "version": "0.1.0",
   "description": "Security scanner and live guard for OpenClaw — PII and content policy enforcement",
   "type": "module",
   "bin": {
@@ -10,7 +10,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release": "npm run build && npm version patch && npm publish"
   },
   "files": [
     "dist"
