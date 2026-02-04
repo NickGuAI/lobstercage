@@ -54,6 +54,23 @@ export function checkSecrets(config: OpenClawConfig): SecurityFinding[] {
     });
   }
 
+  const gatewayHasToken = !!config.gateway?.auth?.token;
+  const gatewayHasPassword = !!config.gateway?.auth?.password;
+
+  if (gatewayHasToken && gatewayHasPassword) {
+    findings.push({
+      id: "secrets-multiple-auth-methods",
+      category: "secrets",
+      severity: "info",
+      title: "Multiple gateway auth methods configured",
+      description:
+        "Both token and password are configured for gateway auth. Consider using only one method.",
+      location: "gateway.auth",
+      fix: "Remove one auth method (prefer token)",
+      fixable: false,
+    });
+  }
+
   // Check hooks token length
   if (hooksToken && hooksToken.length < MIN_HOOKS_TOKEN_LENGTH) {
     findings.push({

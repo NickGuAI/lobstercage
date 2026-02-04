@@ -50,7 +50,7 @@ export async function checkPlugins(config: OpenClawConfig): Promise<SecurityFind
       location: "plugins.allow",
       expectedValue: "Array of allowed plugin names",
       fix: `Add plugins.allow to config: ["${installedExtensions.join('", "')}"]`,
-      fixable: false,
+      fixable: true,
     });
   } else {
     // Check for extensions not in allowlist
@@ -77,14 +77,15 @@ export async function checkPlugins(config: OpenClawConfig): Promise<SecurityFind
       findings.push({
         id: "plugins-wildcard-allow",
         category: "plugins",
-        severity: "warning",
+        severity: "critical",
         title: "Plugins allowlist uses wildcard",
-        description: `plugins.allow includes "*" which allows any plugin. Consider explicit allowlist.`,
+        description:
+          'plugins.allow includes "*" which trusts ANY plugin. Skills/plugins are untrusted software until proven otherwise.',
         location: "plugins.allow",
         currentValue: '["*"]',
         expectedValue: "Explicit list of trusted plugins",
         fix: "Replace wildcard with explicit list of trusted plugins",
-        fixable: false,
+        fixable: true,
       });
     }
   }

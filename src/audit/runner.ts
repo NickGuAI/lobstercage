@@ -9,6 +9,7 @@ import { checkTools } from "./checks/tools.js";
 import { checkSecrets } from "./checks/secrets.js";
 import { checkPlugins } from "./checks/plugins.js";
 import { checkBrowser } from "./checks/browser.js";
+import { checkApproval } from "./checks/approval.js";
 
 /** Run all security audit checks */
 export async function runAudit(options: AuditOptions): Promise<AuditResult> {
@@ -27,6 +28,7 @@ export async function runAudit(options: AuditOptions): Promise<AuditResult> {
   findings.push(...checkGateway(config));
   findings.push(...checkChannels(config));
   findings.push(...checkTools(config));
+  findings.push(...checkApproval(config));
   findings.push(...checkSecrets(config));
   findings.push(...checkBrowser(config));
 

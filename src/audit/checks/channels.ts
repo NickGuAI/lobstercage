@@ -25,37 +25,51 @@ export function checkChannels(config: OpenClawConfig): SecurityFinding[] {
     const channel = channels[channelName] as ChannelConfig | undefined;
     if (!channel || channel.enabled === false) continue;
 
-    // Check DM policy
-    if (channel.dm?.policy === "open") {
+    // Check DM policy - "open" is dangerous, "pairing" is recommended
+    if (channel.dmPolicy === "open") {
       findings.push({
         id: `channel-${channelName}-dm-open`,
         category: "channels",
         severity: "critical",
-        title: `${capitalize(channelName)} DMs are open`,
+        title: `${capitalize(channelName)} DMs are open to anyone`,
         description: `Anyone can send DMs to your agent on ${capitalize(channelName)}. This exposes the agent to prompt injection and abuse.`,
-        location: `channels.${channelName}.dm.policy`,
+        location: `channels.${channelName}.dmPolicy`,
         currentValue: "open",
-        expectedValue: "allowlist or disabled",
-        fix: "Use allowlist policy with pairing or disable DMs",
+        expectedValue: "pairing (recommended) or allowlist",
+        fix: "Set dmPolicy to 'pairing' to require sender verification",
         fixable: true,
+      });
+    } else if (channel.dmPolicy === "allowlist" && (!channel.allowFrom || channel.allowFrom.length === 0)) {
+      findings.push({
+        id: `channel-${channelName}-dm-empty-allowlist`,
+        category: "channels",
+        severity: "warning",
+        title: `${capitalize(channelName)} DM allowlist is empty`,
+        description:
+          "DM policy is 'allowlist' but allowFrom is empty. No one can message the agent. Consider using 'pairing' mode instead.",
+        location: `channels.${channelName}.allowFrom`,
+        currentValue: "[]",
+        expectedValue: "List of allowed senders, or use pairing mode",
+        fix: "Add sender IDs to allowFrom or change dmPolicy to 'pairing'",
+        fixable: false,
       });
     }
 
     // Check group policy
-    if (channel.group?.policy === "open") {
-      const hasElevatedTools = config.tools?.elevated?.allowFrom?.includes("*");
-      const severity = hasElevatedTools ? "critical" : "warning";
+    if (channel.groupPolicy === "open") {
+      const hasElevatedWildcard = config.tools?.elevated?.allowFrom?.includes("*");
+      const severity = hasElevatedWildcard ? "critical" : "warning";
 
       findings.push({
         id: `channel-${channelName}-group-open`,
         category: "channels",
         severity,
         title: `${capitalize(channelName)} groups are open`,
-        description: `Anyone in groups can trigger your agent on ${capitalize(channelName)}.${hasElevatedTools ? " Combined with wildcard elevated tools, this is critical." : ""}`,
-        location: `channels.${channelName}.group.policy`,
+        description: `Anyone in groups can trigger your agent.${hasElevatedWildcard ? " Combined with wildcard elevated tools, this is critical." : ""} Use allowlist to restrict who can interact.`,
+        location: `channels.${channelName}.groupPolicy`,
         currentValue: "open",
-        expectedValue: "allowlist or disabled",
-        fix: "Use allowlist policy to restrict who can trigger the agent",
+        expectedValue: "allowlist",
+        fix: "Set groupPolicy to 'allowlist' and configure groupAllowFrom",
         fixable: true,
       });
     }
@@ -76,8 +90,9 @@ export function checkChannels(config: OpenClawConfig): SecurityFinding[] {
       });
     }
 
-    // Check for missing slash command sender allowlist
-    if (channel.slashCommands && !channel.slashCommands.senderAllowlist?.length) {
+    const slashCommands = (channel as { slashCommands?: { senderAllowlist?: string[] } })
+      .slashCommands;
+    if (slashCommands && !slashCommands.senderAllowlist?.length) {
       findings.push({
         id: `channel-${channelName}-slash-no-allowlist`,
         category: "channels",
@@ -89,6 +104,43 @@ export function checkChannels(config: OpenClawConfig): SecurityFinding[] {
         fix: "Add a senderAllowlist to restrict who can use slash commands",
         fixable: false,
       });
+    }
+
+    // Check per-account configs for multi-account channels (e.g., WhatsApp)
+    if (channel.accounts) {
+      for (const [accountId, accountConfig] of Object.entries(channel.accounts)) {
+        if (accountConfig.enabled === false) continue;
+
+        if (accountConfig.dmPolicy === "open") {
+          findings.push({
+            id: `channel-${channelName}-account-${accountId}-dm-open`,
+            category: "channels",
+            severity: "critical",
+            title: `${capitalize(channelName)} account "${accountId}" DMs are open`,
+            description: `Account "${accountId}" has open DM policy.`,
+            location: `channels.${channelName}.accounts.${accountId}.dmPolicy`,
+            currentValue: "open",
+            expectedValue: "pairing",
+            fix: "Set dmPolicy to 'pairing'",
+            fixable: true,
+          });
+        }
+
+        if (accountConfig.groupPolicy === "open") {
+          findings.push({
+            id: `channel-${channelName}-account-${accountId}-group-open`,
+            category: "channels",
+            severity: "warning",
+            title: `${capitalize(channelName)} account "${accountId}" groups are open`,
+            description: `Account "${accountId}" has open group policy.`,
+            location: `channels.${channelName}.accounts.${accountId}.groupPolicy`,
+            currentValue: "open",
+            expectedValue: "allowlist",
+            fix: "Set groupPolicy to 'allowlist'",
+            fixable: true,
+          });
+        }
+      }
     }
   }
 

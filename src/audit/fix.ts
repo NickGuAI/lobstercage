@@ -1,9 +1,8 @@
 // Auto-fix logic for remediable security findings
 
-import { chmod, readFile, writeFile } from "node:fs/promises";
+import { chmod, writeFile } from "node:fs/promises";
 import type { SecurityFinding, FixResult, OpenClawConfig } from "./types.js";
-import { loadConfig, getStateDir } from "./config-loader.js";
-import { join } from "node:path";
+import { loadConfig, loadExtensionsDir } from "./config-loader.js";
 
 /** Apply auto-fix for a single finding */
 async function applyFix(finding: SecurityFinding): Promise<FixResult> {
@@ -52,6 +51,43 @@ async function applyFix(finding: SecurityFinding): Promise<FixResult> {
           return config;
         }, "Removed gateway.controlUI.dangerouslyDisableDeviceAuth");
 
+      case "gateway-public-bind":
+        return await patchConfig((config) => {
+          if (!config.gateway) config.gateway = {};
+          config.gateway.bind = "loopback";
+          return config;
+        }, "Set gateway.bind to 'loopback'");
+
+      case "gateway-funnel-exposed":
+        return await patchConfig((config) => {
+          if (!config.gateway) config.gateway = {};
+          if (!config.gateway.tailscale) config.gateway.tailscale = {};
+          config.gateway.tailscale.mode = "serve";
+          return config;
+        }, "Set gateway.tailscale.mode to 'serve'");
+
+      case "gateway-control-ui-exposed":
+        return await patchConfig((config) => {
+          if (!config.gateway) config.gateway = {};
+          if (!config.gateway.controlUI) config.gateway.controlUI = {};
+          config.gateway.controlUI.enabled = false;
+          return config;
+        }, "Set gateway.controlUI.enabled to false");
+
+      case "plugins-no-allowlist":
+        return await patchConfigWithExtensions((config, extensions) => {
+          if (!config.plugins) config.plugins = {};
+          config.plugins.allow = extensions.filter((e) => e !== "lobstercage");
+          return config;
+        }, "Generated plugins.allow from installed extensions");
+
+      case "plugins-wildcard-allow":
+        return await patchConfigWithExtensions((config, extensions) => {
+          if (!config.plugins) config.plugins = {};
+          config.plugins.allow = extensions.filter((e) => e !== "lobstercage");
+          return config;
+        }, "Replaced plugins.allow wildcard with explicit list");
+
       case "secrets-redaction-off":
         return await patchConfig((config) => {
           if (!config.logging) config.logging = {};
@@ -61,17 +97,15 @@ async function applyFix(finding: SecurityFinding): Promise<FixResult> {
 
       // Channel policy fixes
       default:
-        // Handle channel DM/group policy fixes dynamically
         if (finding.id.match(/^channel-(\w+)-dm-open$/)) {
           const channel = finding.id.match(/^channel-(\w+)-dm-open$/)?.[1];
           if (channel) {
             return await patchConfig((config) => {
               if (!config.channels) config.channels = {};
               if (!config.channels[channel]) config.channels[channel] = {};
-              if (!config.channels[channel].dm) config.channels[channel].dm = {};
-              config.channels[channel].dm!.policy = "allowlist";
+              config.channels[channel].dmPolicy = "pairing";
               return config;
-            }, `Set channels.${channel}.dm.policy to 'allowlist'`);
+            }, `Set channels.${channel}.dmPolicy to 'pairing'`);
           }
         }
 
@@ -81,10 +115,41 @@ async function applyFix(finding: SecurityFinding): Promise<FixResult> {
             return await patchConfig((config) => {
               if (!config.channels) config.channels = {};
               if (!config.channels[channel]) config.channels[channel] = {};
-              if (!config.channels[channel].group) config.channels[channel].group = {};
-              config.channels[channel].group!.policy = "allowlist";
+              config.channels[channel].groupPolicy = "allowlist";
               return config;
-            }, `Set channels.${channel}.group.policy to 'allowlist'`);
+            }, `Set channels.${channel}.groupPolicy to 'allowlist'`);
+          }
+        }
+
+        if (finding.id.match(/^channel-(\w+)-account-(\w+)-dm-open$/)) {
+          const match = finding.id.match(/^channel-(\w+)-account-(\w+)-dm-open$/);
+          if (match) {
+            const [, channel, accountId] = match;
+            return await patchConfig((config) => {
+              if (!config.channels) config.channels = {};
+              if (!config.channels[channel]) config.channels[channel] = {};
+              const ch = config.channels[channel] as any;
+              if (!ch.accounts) ch.accounts = {};
+              if (!ch.accounts[accountId]) ch.accounts[accountId] = {};
+              ch.accounts[accountId].dmPolicy = "pairing";
+              return config;
+            }, `Set channels.${channel}.accounts.${accountId}.dmPolicy to 'pairing'`);
+          }
+        }
+
+        if (finding.id.match(/^channel-(\w+)-account-(\w+)-group-open$/)) {
+          const match = finding.id.match(/^channel-(\w+)-account-(\w+)-group-open$/);
+          if (match) {
+            const [, channel, accountId] = match;
+            return await patchConfig((config) => {
+              if (!config.channels) config.channels = {};
+              if (!config.channels[channel]) config.channels[channel] = {};
+              const ch = config.channels[channel] as any;
+              if (!ch.accounts) ch.accounts = {};
+              if (!ch.accounts[accountId]) ch.accounts[accountId] = {};
+              ch.accounts[accountId].groupPolicy = "allowlist";
+              return config;
+            }, `Set channels.${channel}.accounts.${accountId}.groupPolicy to 'allowlist'`);
           }
         }
     }
@@ -121,6 +186,34 @@ async function patchConfig(
   const patched = patcher(config);
 
   // Write back with pretty formatting
+  await writeFile(path, JSON.stringify(patched, null, 2) + "\n", "utf-8");
+
+  return {
+    finding: {} as SecurityFinding,
+    success: true,
+    action: `${actionDescription} in ${path}`,
+  };
+}
+
+async function patchConfigWithExtensions(
+  patcher: (config: OpenClawConfig, extensions: string[]) => OpenClawConfig,
+  actionDescription: string
+): Promise<FixResult> {
+  const loaded = await loadConfig();
+  if (!loaded) {
+    return {
+      finding: {} as SecurityFinding,
+      success: false,
+      error: "No config file found to patch",
+    };
+  }
+
+  const extDir = await loadExtensionsDir();
+  const extensions = extDir?.extensions || [];
+
+  const { config, path } = loaded;
+  const patched = patcher(config, extensions);
+
   await writeFile(path, JSON.stringify(patched, null, 2) + "\n", "utf-8");
 
   return {
