@@ -28,8 +28,9 @@ lobstercage catch
 ## Commands
 
 ```bash
-lobstercage catch [options]   # Full scan: audit + forensic scan + guard install
-lobstercage audit [options]   # Config-only audit
+lobstercage catch [options]    # Full scan: audit + forensic scan + guard install
+lobstercage audit [options]    # Config-only audit
+lobstercage status [options]   # Show stats and open web dashboard
 ```
 
 ### `catch` options
@@ -49,6 +50,13 @@ lobstercage audit [options]   # Config-only audit
 - `--deep`       Include deep connectivity checks
 - `--report <path>` Write a report to a file
 - `--config <path>` Use a custom OpenClaw config path
+
+### `status` options
+
+- `--json`       Output stats as JSON
+- `--dashboard`  Open the web dashboard
+- `--port <n>`   Dashboard port (default: 8888)
+- `--days <n>`   Stats for last N days (default: 7)
 
 ## Examples
 
@@ -73,6 +81,21 @@ npx lobstercage catch --uninstall
 
 # Use custom OpenClaw location
 OPENCLAW_STATE_DIR=~/my-openclaw npx lobstercage catch
+
+# Show scan statistics
+npx lobstercage status
+
+# Show stats as JSON
+npx lobstercage status --json
+
+# Show stats for last 30 days
+npx lobstercage status --days 30
+
+# Open web dashboard
+npx lobstercage status --dashboard
+
+# Dashboard on custom port
+npx lobstercage status --dashboard --port 9000
 ```
 
 ## What gets scanned
@@ -137,6 +160,46 @@ The guard plugin is installed to `{stateDir}/extensions/lobstercage/` and provid
 ## Interactive redaction
 
 When `--interactive` is enabled, you can review violations and apply redactions to session files. Lobstercage creates a backup of each file before modifying it.
+
+## Web Dashboard
+
+The `--dashboard` flag launches a Matrix-themed web dashboard with:
+
+- **Pixel art lobster animation** - The lobster walks during scans and snaps its claws when violations are found
+- **Scan statistics** - Total scans, violations, and trends over time (7/30/90 day views)
+- **Top triggered rules** - See which rules catch the most violations
+- **Action buttons**:
+  - **RUN SCAN** - Trigger a forensic scan of session history
+  - **AUDIT** - Run a security audit of your config
+  - **AUTO-FIX** - Apply automatic fixes to remediable issues
+- **Rule configuration** - Enable/disable rules and change action levels (warn/block/shutdown)
+- **Custom rules** - Add your own pattern-based rules
+
+### Accessing the dashboard remotely
+
+The dashboard binds to `localhost` only for security. To access it from a remote machine:
+
+**SSH port forwarding:**
+```bash
+ssh -L 8888:localhost:8888 user@remote-host
+# Then open http://localhost:8888 in your local browser
+```
+
+**Cursor/VS Code Remote-SSH:**
+1. Connect to the remote host
+2. Run `lobstercage status --dashboard`
+3. Open the Ports panel and forward port 8888
+4. Click "Open in Browser"
+
+### Stats storage
+
+Scan statistics are stored in `~/.openclaw/lobstercage/stats.json` and include:
+
+- Scan events with timestamps and violation counts
+- Daily summaries for trend analysis
+- Rule configuration overrides
+
+Stats are automatically pruned after 90 days.
 
 ## Development
 

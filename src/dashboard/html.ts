@@ -779,8 +779,13 @@ export function generateDashboardHtml(): string {
       }
 
       const maxViolations = Math.max(...summaries.map(s => s.totalViolations), 1);
-      const barWidth = Math.floor((width - 40) / summaries.length);
       const padding = 20;
+      // Limit bar width to max 40px for readability
+      const maxBarWidth = 40;
+      const calculatedWidth = Math.floor((width - padding * 2) / Math.max(summaries.length, 7));
+      const barWidth = Math.min(calculatedWidth, maxBarWidth);
+      const totalBarsWidth = barWidth * summaries.length;
+      const startX = padding + (width - padding * 2 - totalBarsWidth) / 2;
 
       // Draw grid lines
       ctx.strokeStyle = '#003300';
@@ -796,13 +801,13 @@ export function generateDashboardHtml(): string {
       // Draw bars (pixel-art style)
       summaries.forEach((summary, i) => {
         const barHeight = (summary.totalViolations / maxViolations) * (height - padding * 2);
-        const x = padding + i * barWidth + 4;
+        const x = startX + i * barWidth + 4;
         const y = height - padding - barHeight;
 
-        // Pixel-style bar
+        // Pixel-style bar (solid, not striped)
         ctx.fillStyle = summary.totalViolations > 0 ? '#00ff41' : '#004400';
-        for (let py = 0; py < barHeight; py += 4) {
-          ctx.fillRect(x, y + py, barWidth - 8, 3);
+        if (barHeight > 0) {
+          ctx.fillRect(x, y, barWidth - 8, barHeight);
         }
 
         // Square dot on top

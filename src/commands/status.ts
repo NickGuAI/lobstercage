@@ -1,9 +1,6 @@
 // CLI status command
 
-import { stat } from "node:fs/promises";
-import { join } from "node:path";
 import { style } from "../ui/matrix.js";
-import { getStateDir } from "../audit/config-loader.js";
 import {
   loadStats,
   getStatsForDays,
@@ -11,6 +8,7 @@ import {
   getStatsPath,
 } from "../stats/storage.js";
 import { startDashboardServer, openBrowser } from "../dashboard/server.js";
+import { isInstalled as isGuardInstalled } from "../guard/install.js";
 
 export type StatusOptions = {
   json: boolean;
@@ -18,20 +16,6 @@ export type StatusOptions = {
   port: number;
   days: number;
 };
-
-/** Check if guard is installed */
-async function isGuardInstalled(): Promise<boolean> {
-  const stateDir = getStateDir();
-  const hooksDir = join(stateDir, "hooks");
-  const guardPath = join(hooksDir, "lobstercage-guard.js");
-
-  try {
-    await stat(guardPath);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Generate ASCII sparkline chart */
 function sparkline(values: number[], width: number = 20): string {
