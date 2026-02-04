@@ -1,14 +1,23 @@
 // API route handlers for the dashboard
 
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { loadStats, getStatsForDays, getTopRules } from "../stats/storage.js";
+import { loadStats, getStatsForDays, getTopRules, recordScanEvent } from "../stats/storage.js";
 import {
   loadRuleConfig,
   updateRule,
   addCustomRule,
   removeCustomRule,
 } from "../stats/rules-config.js";
-import type { StoredRule } from "../stats/types.js";
+import { getPiiRules, getContentRules } from "../scanner/engine.js";
+import { forensicScan } from "../forensic/scan.js";
+import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
+import type { StoredRule, ViolationEvent } from "../stats/types.js";
+
+// Track running operations
+let scanInProgress = false;
+let fixInProgress = false;
+let lastScanResult: { violations: number; sessionsScanned: number; messagesScanned: number } | null = null;
+let lastFixResult: { fixed: number; failed: number } | null = null;
 
 type ApiResponse = {
   success: boolean;
@@ -158,6 +167,164 @@ async function handleRemoveRule(
   }
 }
 
+/** Handle POST /api/scan - trigger forensic scan */
+async function handleScan(
+  _req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  if (scanInProgress) {
+    sendJson(res, { success: false, error: "Scan already in progress" }, 409);
+    return;
+  }
+
+  try {
+    scanInProgress = true;
+    lastScanResult = null;
+
+    // Run forensic scan
+    const rules = [...getPiiRules(), ...getContentRules()];
+    const report = await forensicScan(rules);
+
+    // Record stats
+    const violationEvents: ViolationEvent[] = [];
+    const violationCounts: Record<string, { category: "pii" | "content"; action: "warn" | "block" | "shutdown"; count: number }> = {};
+    for (const v of report.violations) {
+      if (!violationCounts[v.ruleId]) {
+        violationCounts[v.ruleId] = { category: v.category, action: v.action, count: 0 };
+      }
+      violationCounts[v.ruleId].count++;
+    }
+    for (const [ruleId, data] of Object.entries(violationCounts)) {
+      violationEvents.push({
+        ruleId,
+        category: data.category,
+        action: data.action,
+        count: data.count,
+      });
+    }
+    await recordScanEvent("forensic", violationEvents);
+
+    lastScanResult = {
+      violations: report.violations.length,
+      sessionsScanned: report.sessionsScanned,
+      messagesScanned: report.messagesScanned,
+    };
+
+    sendJson(res, {
+      success: true,
+      data: {
+        violations: report.violations.length,
+        sessionsScanned: report.sessionsScanned,
+        messagesScanned: report.messagesScanned,
+        summary: report.summary,
+      },
+    });
+  } catch (err) {
+    sendJson(res, { success: false, error: String(err) }, 500);
+  } finally {
+    scanInProgress = false;
+  }
+}
+
+/** Handle POST /api/audit - trigger security audit */
+async function handleAudit(
+  _req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  try {
+    const auditResult = await runAudit({ fix: false, deep: false });
+
+    // Record stats
+    const auditViolations: ViolationEvent[] = [];
+    for (const finding of auditResult.findings) {
+      auditViolations.push({
+        ruleId: `audit-${finding.id}`,
+        category: "content",
+        action: finding.severity === "critical" ? "block" : "warn",
+        count: 1,
+      });
+    }
+    if (auditViolations.length > 0) {
+      await recordScanEvent("audit", auditViolations);
+    }
+
+    sendJson(res, {
+      success: true,
+      data: {
+        findings: auditResult.findings,
+        summary: auditResult.summary,
+        fixableCount: getFixableFindings(auditResult).length,
+      },
+    });
+  } catch (err) {
+    sendJson(res, { success: false, error: String(err) }, 500);
+  }
+}
+
+/** Handle POST /api/fix - apply auto-fixes */
+async function handleFix(
+  _req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  if (fixInProgress) {
+    sendJson(res, { success: false, error: "Fix already in progress" }, 409);
+    return;
+  }
+
+  try {
+    fixInProgress = true;
+    lastFixResult = null;
+
+    // Run audit to get findings
+    const auditResult = await runAudit({ fix: false, deep: false });
+    const fixable = getFixableFindings(auditResult);
+
+    if (fixable.length === 0) {
+      sendJson(res, {
+        success: true,
+        data: { fixed: 0, failed: 0, message: "No fixable issues found" },
+      });
+      return;
+    }
+
+    // Apply fixes
+    const fixResults = await applyFixes(auditResult.findings);
+    const fixed = fixResults.filter((r) => r.success).length;
+    const failed = fixResults.filter((r) => !r.success).length;
+
+    lastFixResult = { fixed, failed };
+
+    sendJson(res, {
+      success: true,
+      data: {
+        fixed,
+        failed,
+        results: fixResults,
+      },
+    });
+  } catch (err) {
+    sendJson(res, { success: false, error: String(err) }, 500);
+  } finally {
+    fixInProgress = false;
+  }
+}
+
+/** Handle GET /api/status - get operation status */
+async function handleStatus(
+  _req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  sendJson(res, {
+    success: true,
+    data: {
+      scanInProgress,
+      fixInProgress,
+      lastScanResult,
+      lastFixResult,
+    },
+  });
+}
+
 /** Route API requests */
 export async function handleApiRequest(
   req: IncomingMessage,
@@ -200,6 +367,26 @@ export async function handleApiRequest(
 
   if (pathname === "/api/rules/remove" && req.method === "POST") {
     await handleRemoveRule(req, res);
+    return true;
+  }
+
+  if (pathname === "/api/scan" && req.method === "POST") {
+    await handleScan(req, res);
+    return true;
+  }
+
+  if (pathname === "/api/audit" && req.method === "POST") {
+    await handleAudit(req, res);
+    return true;
+  }
+
+  if (pathname === "/api/fix" && req.method === "POST") {
+    await handleFix(req, res);
+    return true;
+  }
+
+  if (pathname === "/api/status" && req.method === "GET") {
+    await handleStatus(req, res);
     return true;
   }
 

@@ -452,6 +452,88 @@ export function generateDashboardHtml(): string {
       margin-bottom: 16px;
     }
 
+    /* Action buttons */
+    .action-buttons {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .action-btn {
+      font-family: 'VT323', monospace;
+      font-size: 18px;
+      flex: 1;
+      padding: 16px;
+      background: var(--bg-dark);
+      border: 2px solid var(--border-pixel);
+      color: var(--matrix-green);
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .action-btn:hover:not(:disabled) {
+      background: var(--matrix-dark);
+      border-color: var(--matrix-green);
+      text-shadow: 0 0 8px var(--matrix-glow);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .action-btn.loading::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 3px;
+      background: var(--matrix-green);
+      animation: loading-bar 1.5s infinite;
+    }
+
+    @keyframes loading-bar {
+      0% { width: 0%; left: 0; }
+      50% { width: 100%; left: 0; }
+      100% { width: 0%; left: 100%; }
+    }
+
+    .action-btn.fix-btn {
+      border-color: var(--alert-orange);
+      color: var(--alert-orange);
+    }
+
+    .action-btn.fix-btn:hover:not(:disabled) {
+      background: #331a00;
+      text-shadow: 0 0 8px var(--alert-orange);
+    }
+
+    /* Result toast */
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-panel);
+      border: 2px solid var(--matrix-green);
+      padding: 16px 24px;
+      font-size: 18px;
+      z-index: 2000;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .toast.show {
+      opacity: 1;
+    }
+
+    .toast.error {
+      border-color: var(--alert-red);
+      color: var(--alert-red);
+    }
+
     .status-indicator {
       width: 16px;
       height: 16px;
@@ -496,6 +578,11 @@ export function generateDashboardHtml(): string {
         <div class="guard-status">
           <div class="status-indicator" id="guard-indicator"></div>
           <span id="guard-text">Guard Active</span>
+        </div>
+        <div class="action-buttons">
+          <button class="action-btn" id="scan-btn">▶ RUN SCAN</button>
+          <button class="action-btn" id="audit-btn">◉ AUDIT</button>
+          <button class="action-btn fix-btn" id="fix-btn">⚡ AUTO-FIX</button>
         </div>
       </div>
 
@@ -580,6 +667,9 @@ export function generateDashboardHtml(): string {
       </div>
     </div>
   </div>
+
+  <!-- Toast notification -->
+  <div class="toast" id="toast"></div>
 
   <script>
     // Embedded pixel art data
@@ -988,6 +1078,122 @@ export function generateDashboardHtml(): string {
     fetchStats(currentDays);
     fetchRules();
     initMatrixRain();
+
+    // Toast notification
+    function showToast(message, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = 'toast show' + (isError ? ' error' : '');
+      setTimeout(() => {
+        toast.className = 'toast';
+      }, 4000);
+    }
+
+    // Scan button handler
+    document.getElementById('scan-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('scan-btn');
+      if (btn.disabled) return;
+
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.textContent = '⏳ SCANNING...';
+      startAnimation('walk');
+
+      try {
+        const res = await fetch('/api/scan', { method: 'POST' });
+        const json = await res.json();
+
+        if (json.success) {
+          const data = json.data;
+          if (data.violations > 0) {
+            showToast(\`Scan complete: \${data.violations} violation(s) found in \${data.messagesScanned} messages\`);
+            triggerAlert();
+          } else {
+            showToast(\`Scan complete: No violations in \${data.messagesScanned} messages\`);
+          }
+          fetchStats(currentDays);
+        } else {
+          showToast('Scan failed: ' + json.error, true);
+        }
+      } catch (err) {
+        showToast('Scan failed: ' + err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.textContent = '▶ RUN SCAN';
+        startAnimation('idle');
+      }
+    });
+
+    // Audit button handler
+    document.getElementById('audit-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('audit-btn');
+      if (btn.disabled) return;
+
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.textContent = '⏳ AUDITING...';
+
+      try {
+        const res = await fetch('/api/audit', { method: 'POST' });
+        const json = await res.json();
+
+        if (json.success) {
+          const data = json.data;
+          const total = data.summary.critical + data.summary.warning;
+          if (total > 0) {
+            showToast(\`Audit: \${data.summary.critical} critical, \${data.summary.warning} warnings (\${data.fixableCount} fixable)\`);
+            if (data.summary.critical > 0) triggerAlert();
+          } else {
+            showToast('Audit complete: No issues found');
+          }
+          fetchStats(currentDays);
+        } else {
+          showToast('Audit failed: ' + json.error, true);
+        }
+      } catch (err) {
+        showToast('Audit failed: ' + err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.textContent = '◉ AUDIT';
+      }
+    });
+
+    // Fix button handler
+    document.getElementById('fix-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('fix-btn');
+      if (btn.disabled) return;
+
+      if (!confirm('Apply auto-fixes to remediable security issues?')) return;
+
+      btn.disabled = true;
+      btn.classList.add('loading');
+      btn.textContent = '⏳ FIXING...';
+
+      try {
+        const res = await fetch('/api/fix', { method: 'POST' });
+        const json = await res.json();
+
+        if (json.success) {
+          const data = json.data;
+          if (data.fixed > 0 || data.failed > 0) {
+            showToast(\`Fixed \${data.fixed} issue(s)\${data.failed > 0 ? ', ' + data.failed + ' failed' : ''}\`);
+          } else {
+            showToast(data.message || 'No fixable issues found');
+          }
+          fetchStats(currentDays);
+        } else {
+          showToast('Fix failed: ' + json.error, true);
+        }
+      } catch (err) {
+        showToast('Fix failed: ' + err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.classList.remove('loading');
+        btn.textContent = '⚡ AUTO-FIX';
+      }
+    });
 
     // Refresh data periodically
     setInterval(() => fetchStats(currentDays), 30000);
