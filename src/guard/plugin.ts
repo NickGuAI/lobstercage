@@ -1,21 +1,28 @@
 // OpenClaw plugin source — this file gets written to ~/.openclaw/extensions/lobstercage/
 // It runs inside OpenClaw's plugin runtime, so it must be self-contained.
 
-export const PLUGIN_SOURCE = `
+import { SECURITY_DIRECTIVE } from "./prompts.js";
+
+// Helper to build the plugin source with the security directive injected
+function buildPluginSource(securityDirective: string): string {
+  // Use JSON.stringify to safely escape the directive as a string literal
+  const jsonEscaped = JSON.stringify(securityDirective);
+
+  return `
 const PII_PATTERNS = {
   phone: [/\\+?\\d{1,3}[-.\\s]?\\(?\\d{1,4}\\)?[-.\\s]?\\d{1,4}[-.\\s]?\\d{1,9}/g],
   email: [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g],
   ssn: [/\\b\\d{3}-\\d{2}-\\d{4}\\b/g],
   "credit-card": [/\\b(?:\\d[ -]*?){13,19}\\b/g],
   "api-key": [
-    /\\bsk-[a-zA-Z0-9]{20,}\\b/g,
-    /\\bsk_live_[a-zA-Z0-9]{20,}\\b/g,
-    /\\bsk_test_[a-zA-Z0-9]{20,}\\b/g,
-    /\\bghp_[a-zA-Z0-9]{36,}\\b/g,
-    /\\bAKIA[A-Z0-9]{16}\\b/g,
-    /\\bxox[bpas]-[a-zA-Z0-9-]{10,}\\b/g,
-    /\\bglpat-[a-zA-Z0-9_-]{20,}\\b/g,
-    /\\bsk-ant-[a-zA-Z0-9_-]{20,}\\b/g,
+    /\\bsk-[a-zA-Z0-9_-]{5,}/g,
+    /\\bsk_live_[a-zA-Z0-9_-]{5,}/g,
+    /\\bsk_test_[a-zA-Z0-9_-]{5,}/g,
+    /\\bghp_[a-zA-Z0-9_-]{5,}/g,
+    /\\bAKIA[A-Z0-9_-]{5,}/g,
+    /\\bxox[bpas]-[a-zA-Z0-9_-]{5,}/g,
+    /\\bglpat-[a-zA-Z0-9_-]{5,}/g,
+    /\\bsk-ant-[a-zA-Z0-9_-]{5,}/g,
   ],
   password: [/\\b(?:password|passwd|secret|token|api_key|apikey|auth_token)[\\s]*[=:]\\s*["']?[^\\s"']{4,}/gi],
 };
@@ -68,40 +75,125 @@ function scanContent(content) {
   return violations;
 }
 
+// Extract text content from message content (handles both string and array formats)
+function extractTextContent(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter(block => block.type === "text")
+      .map(block => block.text || "")
+      .join("\\n");
+  }
+  return "";
+}
+
+// Security directive injected at build time
+const SECURITY_DIRECTIVE = ${jsonEscaped};
+
 module.exports = {
   id: "lobstercage",
   name: "Lobstercage Security Guard",
   description: "Scans outgoing messages for PII and policy violations",
 
   register(api) {
-    // Correct signature: (event, ctx) => result | void
-    // event: { to, content, metadata }
-    // ctx: { channelId, accountId, conversationId }
-    // result: { content?, cancel? }
-    api.on("message_sending", (event, ctx) => {
-      const content = typeof event.content === "string" ? event.content : JSON.stringify(event.content);
-      const violations = scanContent(content);
-      if (violations.length === 0) return;
+    api.logger.info("[lobstercage] Guard plugin register() called");
+    api.logger.info("[lobstercage] api.on type: " + typeof api.on);
 
-      const maxAction = violations.reduce((max, v) => {
-        const severity = { warn: 0, block: 1, shutdown: 2 };
-        return severity[v.action] > severity[max] ? v.action : max;
-      }, "warn");
+    try {
+      // Hook 1: before_agent_start - Inject security directive (prevention layer)
+      // This prepends context to the system prompt to instruct the AI to avoid outputting PII
+      api.on("before_agent_start", (event, ctx) => {
+        api.logger.info("[lobstercage] before_agent_start hook fired");
+        return {
+          prependContext: SECURITY_DIRECTIVE,
+        };
+      });
+      api.logger.info("[lobstercage] before_agent_start hook registered successfully");
 
-      const recipient = event.to || ctx.conversationId || "unknown";
-      api.logger.warn("[lobstercage] " + violations.length + " violation(s) in message to " + recipient + ": " + violations.map(v => v.ruleId).join(", "));
+      // Hook 2: message_sending - Block explicit message tool calls (existing behavior)
+      // Correct signature: (event, ctx) => result | void
+      // event: { to, content, metadata }
+      // ctx: { channelId, accountId, conversationId }
+      // result: { content?, cancel? }
+      api.on("message_sending", (event, ctx) => {
+        const recipient = event.to || ctx.conversationId || "unknown";
+        api.logger.info("[lobstercage] message_sending hook fired for: " + recipient);
 
-      if (maxAction === "warn") return;
-      return { cancel: true };
-    });
+        const content = typeof event.content === "string" ? event.content : JSON.stringify(event.content);
+        api.logger.info("[lobstercage] Content length: " + content.length);
+
+        const violations = scanContent(content);
+        api.logger.info("[lobstercage] Violations found: " + violations.length);
+
+        if (violations.length === 0) return;
+
+        const maxAction = violations.reduce((max, v) => {
+          const severity = { warn: 0, block: 1, shutdown: 2 };
+          return severity[v.action] > severity[max] ? v.action : max;
+        }, "warn");
+
+        api.logger.warn("[lobstercage] " + violations.length + " violation(s) in message to " + recipient + ": " + violations.map(v => v.ruleId).join(", "));
+
+        if (maxAction === "warn") return;
+        return { cancel: true };
+      });
+      api.logger.info("[lobstercage] message_sending hook registered successfully");
+
+      // Hook 3: agent_end - Scan completed responses (detection layer)
+      // This cannot block delivery, but logs violations for auditing
+      api.on("agent_end", (event, ctx) => {
+        api.logger.info("[lobstercage] agent_end hook fired, success: " + event.success);
+
+        if (!event.success || !event.messages) {
+          api.logger.info("[lobstercage] agent_end: no messages to scan");
+          return;
+        }
+
+        for (const msg of event.messages) {
+          if (msg.role !== "assistant") continue;
+
+          const content = extractTextContent(msg.content);
+          if (!content) continue;
+
+          const violations = scanContent(content);
+
+          if (violations.length > 0) {
+            // Log violation - user already saw the message (cannot block at this point)
+            api.logger.warn("[lobstercage] PII violation detected in AI response: " + violations.map(v => v.ruleId).join(", "));
+            // Future: could write to audit log, send webhook alert, etc.
+          }
+        }
+      });
+      api.logger.info("[lobstercage] agent_end hook registered successfully");
+
+    } catch (err) {
+      api.logger.error("[lobstercage] Failed to register hook: " + String(err));
+    }
   },
 };
 `;
+}
+
+export const PLUGIN_SOURCE = buildPluginSource(SECURITY_DIRECTIVE);
 
 export const PLUGIN_MANIFEST = {
+  name: "lobstercage",
+  version: "0.1.0",
+  description: "Lobstercage Security Guard - Scans outgoing messages for PII and policy violations",
+  main: "index.js",
+  openclaw: {
+    extensions: ["index.js"],
+  },
+};
+
+export const OPENCLAW_PLUGIN_JSON = {
   id: "lobstercage",
   name: "Lobstercage Security Guard",
-  version: "0.1.0",
   description: "Scans outgoing messages for PII and policy violations",
-  main: "index.js",
+  version: "0.1.0",
+  configSchema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {},
+  },
 };

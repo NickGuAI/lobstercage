@@ -1,7 +1,7 @@
 import { mkdir, writeFile, rm, access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { PLUGIN_SOURCE, PLUGIN_MANIFEST } from "./plugin.js";
+import { PLUGIN_SOURCE, PLUGIN_MANIFEST, OPENCLAW_PLUGIN_JSON } from "./plugin.js";
 import { style } from "../ui/matrix.js";
 
 function resolveUserPath(input: string): string {
@@ -42,6 +42,7 @@ export async function installGuard(): Promise<void> {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "index.js"), PLUGIN_SOURCE.trim(), "utf-8");
   await writeFile(join(dir, "package.json"), JSON.stringify(PLUGIN_MANIFEST, null, 2), "utf-8");
+  await writeFile(join(dir, "openclaw.plugin.json"), JSON.stringify(OPENCLAW_PLUGIN_JSON, null, 2), "utf-8");
 }
 
 /** Uninstall the lobstercage guard plugin */
