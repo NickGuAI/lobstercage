@@ -114,18 +114,30 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
     }
 
     let installPath = resolveSkillInstallPath(acquired.skillName);
-    await mkdir(dirname(installPath), { recursive: true });
+    const extDir = dirname(installPath);
+    await mkdir(extDir, { recursive: true });
+
+    // Snapshot extensions dir before install to detect what OpenClaw creates
+    let entriesBefore: Set<string>;
+    try {
+      entriesBefore = new Set(await readdir(extDir));
+    } catch {
+      entriesBefore = new Set();
+    }
 
     // Prefer native OpenClaw install command with staged artifact; fallback to local copy.
     const installResult = await installExtensionDisabled(acquired.sourcePath);
     if (installResult.ok) {
-      // Verify the expected install path exists; if OpenClaw used a different name, discover it
+      // Use before/after delta to find the actual installed path
       if (!(await pathExists(installPath))) {
-        const extDir = dirname(installPath);
-        const extEntries = await readdir(extDir);
-        const candidate = extEntries.find((e) => e !== "lobstercage");
-        if (candidate) {
-          installPath = join(extDir, candidate);
+        try {
+          const entriesAfter = await readdir(extDir);
+          const newEntries = entriesAfter.filter((e) => !entriesBefore.has(e));
+          if (newEntries.length > 0) {
+            installPath = join(extDir, newEntries[0]);
+          }
+        } catch {
+          // Fall through with original installPath
         }
       }
       console.log(style.green("  ✓ Installed through OpenClaw in disabled mode"));

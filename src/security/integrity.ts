@@ -23,7 +23,10 @@ function normalizeRelativePath(filePath: string): string {
   return filePath.split("\\").join("/");
 }
 
-async function listFilesRecursive(dir: string): Promise<string[]> {
+const MAX_HASHABLE_SIZE = 50 * 1024 * 1024; // 50MB limit for integrity hashing
+
+async function listFilesRecursive(dir: string, rootDir?: string): Promise<string[]> {
+  const root = rootDir ?? dir;
   const entries = await readdir(dir);
 
   const files: string[] = [];
@@ -37,17 +40,23 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
     }
     if (info.isDirectory() && !info.isSymbolicLink()) {
       try {
-        files.push(...(await listFilesRecursive(entryPath)));
+        files.push(...(await listFilesRecursive(entryPath, root)));
       } catch {
         // Continue scanning siblings if a subdirectory is unreadable
       }
     } else if (info.isFile()) {
-      files.push(entryPath);
+      if (info.size <= MAX_HASHABLE_SIZE) {
+        files.push(entryPath);
+      }
     } else if (info.isSymbolicLink()) {
-      // Validate symlink target is a regular file (not a device, FIFO, etc.)
+      // Validate symlink resolves to a regular file within the root directory
       try {
+        const resolved = await realpath(entryPath);
+        if (!resolved.startsWith(root + "/") && resolved !== root) {
+          continue; // Target is outside extensions root — skip
+        }
         const targetInfo = await stat(entryPath);
-        if (targetInfo.isFile()) {
+        if (targetInfo.isFile() && targetInfo.size <= MAX_HASHABLE_SIZE) {
           files.push(entryPath);
         }
       } catch {
