@@ -77,10 +77,8 @@ async function listSkillDirectories(): Promise<Array<{ name: string; path: strin
     if (entry === "lobstercage") continue;
     const fullPath = join(extensionsDir, entry);
     try {
-      // Use stat (follows symlinks) so symlinked extension dirs are scanned,
-      // matching the behavior of plugins.ts inventory checks
-      const info = await stat(fullPath);
-      if (info.isDirectory()) {
+      const info = await lstat(fullPath);
+      if (info.isDirectory() && !info.isSymbolicLink()) {
         skills.push({ name: entry, path: fullPath });
       }
     } catch {
