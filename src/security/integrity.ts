@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, rename, lstat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rename, lstat, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, relative } from "node:path";
 import { getExtensionsDir, getLobstercageStateDir } from "./paths.js";
@@ -41,9 +41,18 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
       } catch {
         // Continue scanning siblings if a subdirectory is unreadable
       }
-    } else if (info.isFile() || info.isSymbolicLink()) {
-      // Include symlinks so retargeted files trigger drift detection
+    } else if (info.isFile()) {
       files.push(entryPath);
+    } else if (info.isSymbolicLink()) {
+      // Validate symlink target is a regular file (not a device, FIFO, etc.)
+      try {
+        const targetInfo = await stat(entryPath);
+        if (targetInfo.isFile()) {
+          files.push(entryPath);
+        }
+      } catch {
+        // Broken symlink or unresolvable target — skip
+      }
     }
   }
   return files;

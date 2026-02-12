@@ -1,4 +1,4 @@
-import { access, cp, mkdir, mkdtemp, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { style } from "../ui/matrix.js";
@@ -62,11 +62,12 @@ async function acquireSource(source: string, stagingRoot: string): Promise<Acqui
     );
   }
 
-  // Pick first created directory under stagingRoot.
-  const skillName = normalizeSkillName(source);
-  const destination = join(stagingRoot, skillName);
-  if (await pathExists(destination)) {
-    return { sourcePath: destination, skillName };
+  // Discover whatever OpenClaw created in staging instead of hard-coding a name
+  const entries = await readdir(stagingRoot);
+  if (entries.length > 0) {
+    const firstEntry = entries[0];
+    const destination = join(stagingRoot, firstEntry);
+    return { sourcePath: destination, skillName: firstEntry };
   }
 
   throw new Error(`OpenClaw download succeeded but could not locate downloaded content for '${source}'.`);
@@ -112,12 +113,21 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
       console.log(style.green("  ✓ Pre-scan clean"));
     }
 
-    const installPath = resolveSkillInstallPath(acquired.skillName);
+    let installPath = resolveSkillInstallPath(acquired.skillName);
     await mkdir(dirname(installPath), { recursive: true });
 
     // Prefer native OpenClaw install command with staged artifact; fallback to local copy.
     const installResult = await installExtensionDisabled(acquired.sourcePath);
     if (installResult.ok) {
+      // Verify the expected install path exists; if OpenClaw used a different name, discover it
+      if (!(await pathExists(installPath))) {
+        const extDir = dirname(installPath);
+        const extEntries = await readdir(extDir);
+        const candidate = extEntries.find((e) => e !== "lobstercage");
+        if (candidate) {
+          installPath = join(extDir, candidate);
+        }
+      }
       console.log(style.green("  ✓ Installed through OpenClaw in disabled mode"));
     } else {
       await rm(installPath, { recursive: true, force: true });
