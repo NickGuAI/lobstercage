@@ -25,8 +25,24 @@ function normalizeRelativePath(filePath: string): string {
 
 const MAX_HASHABLE_SIZE = 50 * 1024 * 1024; // 50MB limit for integrity hashing
 
-async function listFilesRecursive(dir: string, rootDir?: string): Promise<string[]> {
+async function listFilesRecursive(
+  dir: string,
+  rootDir?: string,
+  visited?: Set<string>
+): Promise<string[]> {
   const root = rootDir ?? dir;
+  const seen = visited ?? new Set<string>();
+
+  // Track resolved paths to prevent symlink loops
+  let resolvedDir: string;
+  try {
+    resolvedDir = await realpath(dir);
+  } catch {
+    return [];
+  }
+  if (seen.has(resolvedDir)) return [];
+  seen.add(resolvedDir);
+
   const entries = await readdir(dir);
 
   const files: string[] = [];
@@ -40,7 +56,7 @@ async function listFilesRecursive(dir: string, rootDir?: string): Promise<string
     }
     if (info.isDirectory() && !info.isSymbolicLink()) {
       try {
-        files.push(...(await listFilesRecursive(entryPath, root)));
+        files.push(...(await listFilesRecursive(entryPath, root, seen)));
       } catch {
         // Continue scanning siblings if a subdirectory is unreadable
       }
@@ -49,7 +65,6 @@ async function listFilesRecursive(dir: string, rootDir?: string): Promise<string
         files.push(entryPath);
       }
     } else if (info.isSymbolicLink()) {
-      // Validate symlink resolves to a regular file within the root directory
       try {
         const resolved = await realpath(entryPath);
         if (!resolved.startsWith(root + "/") && resolved !== root) {
@@ -58,6 +73,13 @@ async function listFilesRecursive(dir: string, rootDir?: string): Promise<string
         const targetInfo = await stat(entryPath);
         if (targetInfo.isFile() && targetInfo.size <= MAX_HASHABLE_SIZE) {
           files.push(entryPath);
+        } else if (targetInfo.isDirectory()) {
+          // Follow symlinked dirs within root (loop-safe via visited set)
+          try {
+            files.push(...(await listFilesRecursive(resolved, root, seen)));
+          } catch {
+            // Continue if unreadable
+          }
         }
       } catch {
         // Broken symlink or unresolvable target — skip

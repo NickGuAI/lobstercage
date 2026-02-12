@@ -130,14 +130,22 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
     if (installResult.ok) {
       // Use before/after delta to find the actual installed path
       if (!(await pathExists(installPath))) {
+        let resolved = false;
         try {
           const entriesAfter = await readdir(extDir);
           const newEntries = entriesAfter.filter((e) => !entriesBefore.has(e));
           if (newEntries.length > 0) {
             installPath = join(extDir, newEntries[0]);
+            resolved = true;
           }
         } catch {
-          // Fall through with original installPath
+          // Discovery failed
+        }
+        if (!resolved) {
+          throw new Error(
+            `OpenClaw install succeeded but installed path could not be resolved. ` +
+              `Expected '${installPath}' does not exist and no new entries found in extensions dir.`
+          );
         }
       }
       console.log(style.green("  ✓ Installed through OpenClaw in disabled mode"));
