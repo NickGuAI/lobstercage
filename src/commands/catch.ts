@@ -156,6 +156,7 @@ export async function runCatch(options: CatchOptions): Promise<void> {
   let skillFindings = 0;
   let quarantinedSkills = 0;
   let integrityDriftCount = 0;
+  let needsBaselineCreation = false;
 
   // Phase 1: Config Security Audit
   if (!options.scanOnly) {
@@ -236,20 +237,11 @@ export async function runCatch(options: CatchOptions): Promise<void> {
       serializeSkillScanSection(skillReport.skillsScanned, skillFindings, quarantinedSkills)
     );
 
-    const integritySpinner = new Spinner("Checking integrity baseline...");
-    integritySpinner.start();
     const drift = await detectExtensionsIntegrityDrift();
-    let baselineCreated = false;
-    if (!drift.baselinePresent) {
-      await writeExtensionsBaseline();
-      baselineCreated = true;
-    }
-    integritySpinner.stop("Integrity check complete");
-    console.log();
 
     integrityDriftCount = drift.added.length + drift.removed.length + drift.modified.length;
-    if (baselineCreated) {
-      console.log(style.dim("  Created initial integrity baseline for extensions"));
+    if (!drift.baselinePresent) {
+      console.log(style.dim("  No integrity baseline yet (will create after guard install)"));
     } else if (integrityDriftCount > 0) {
       console.log(style.warn(`  Integrity drift detected (${integrityDriftCount} change(s))`));
       if (drift.modified.length > 0) {
@@ -266,7 +258,9 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     }
     console.log();
 
-    if (!baselineCreated && integrityDriftCount > 0) {
+    if (!drift.baselinePresent) {
+      needsBaselineCreation = true;
+    } else if (integrityDriftCount > 0) {
       await recordScanEvent("integrity", [
         {
           ruleId: "integrity-drift",
@@ -278,7 +272,7 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     }
 
     reportSections.push(
-      serializeIntegritySection(baselineCreated, {
+      serializeIntegritySection(!drift.baselinePresent, {
         added: drift.added,
         removed: drift.removed,
         modified: drift.modified,
@@ -327,6 +321,16 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     await installGuard();
     guardSpinner.stop("Guard installed");
     console.log(style.dim("  Outgoing messages will be scanned in real-time"));
+    console.log();
+  }
+
+  // Create integrity baseline after guard install to avoid self-induced drift
+  if (needsBaselineCreation) {
+    const baselineSpinner = new Spinner("Creating integrity baseline...");
+    baselineSpinner.start();
+    await writeExtensionsBaseline();
+    baselineSpinner.stop("Integrity baseline created");
+    console.log(style.dim("  Created initial integrity baseline for extensions"));
     console.log();
   }
 

@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, lstat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join, relative } from "node:path";
 import { getExtensionsDir, getLobstercageStateDir } from "./paths.js";
@@ -36,13 +36,13 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
     const entryPath = join(dir, entry);
     let info;
     try {
-      info = await stat(entryPath);
+      info = await lstat(entryPath);
     } catch {
       continue;
     }
-    if (info.isDirectory()) {
+    if (info.isDirectory() && !info.isSymbolicLink()) {
       files.push(...(await listFilesRecursive(entryPath)));
-    } else if (info.isFile()) {
+    } else if (info.isFile() && !info.isSymbolicLink()) {
       files.push(entryPath);
     }
   }

@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, lstat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { scanContent, getContentRules, getMalwareRules } from "../scanner/engine.js";
 import type { ScanRule, RuleAction, RuleCategory } from "../scanner/types.js";
@@ -77,8 +77,8 @@ async function listSkillDirectories(): Promise<Array<{ name: string; path: strin
     if (entry === "lobstercage") continue;
     const fullPath = join(extensionsDir, entry);
     try {
-      const info = await stat(fullPath);
-      if (info.isDirectory()) {
+      const info = await lstat(fullPath);
+      if (info.isDirectory() && !info.isSymbolicLink()) {
         skills.push({ name: entry, path: fullPath });
       }
     } catch {
@@ -101,13 +101,13 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
     const fullPath = join(dir, entry);
     let info;
     try {
-      info = await stat(fullPath);
+      info = await lstat(fullPath);
     } catch {
       continue;
     }
-    if (info.isDirectory()) {
+    if (info.isDirectory() && !info.isSymbolicLink()) {
       files.push(...(await listFilesRecursive(fullPath)));
-    } else if (info.isFile()) {
+    } else if (info.isFile() && !info.isSymbolicLink()) {
       files.push(fullPath);
     }
   }
@@ -148,7 +148,7 @@ export async function scanInstalledSkills(options: SkillScanOptions): Promise<Sk
       for (const filePath of files) {
         let info;
         try {
-          info = await stat(filePath);
+          info = await lstat(filePath);
         } catch {
           continue;
         }
