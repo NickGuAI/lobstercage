@@ -1,4 +1,4 @@
-import { readFile, readdir, lstat } from "node:fs/promises";
+import { readFile, readdir, lstat, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { scanContent, getContentRules, getMalwareRules } from "../scanner/engine.js";
 import type { ScanRule, RuleAction, RuleCategory } from "../scanner/types.js";
@@ -149,11 +149,12 @@ export async function scanInstalledSkills(options: SkillScanOptions): Promise<Sk
       for (const filePath of files) {
         let info;
         try {
-          info = await lstat(filePath);
+          // Use stat (not lstat) to get the real target size for symlinks
+          info = await stat(filePath);
         } catch {
           continue;
         }
-        if (!shouldScanFile(filePath, info.size)) {
+        if (!info.isFile() || !shouldScanFile(filePath, info.size)) {
           continue;
         }
 

@@ -60,9 +60,14 @@ export async function hashFileSha256(filePath: string): Promise<string> {
   });
 }
 
-/** Snapshot file hashes relative to root directory. */
+/** Snapshot file hashes relative to root directory. Returns empty if dir doesn't exist. */
 export async function snapshotDirectoryHashes(rootDir: string): Promise<Record<string, string>> {
-  const files = await listFilesRecursive(rootDir);
+  let files: string[];
+  try {
+    files = await listFilesRecursive(rootDir);
+  } catch {
+    return {};
+  }
   const snapshot: Record<string, string> = {};
 
   for (const filePath of files.sort((a, b) => a.localeCompare(b))) {

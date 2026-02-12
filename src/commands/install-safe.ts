@@ -114,8 +114,8 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
     const installPath = resolveSkillInstallPath(acquired.skillName);
     await mkdir(dirname(installPath), { recursive: true });
 
-    // Prefer native OpenClaw install command; fallback to local copy.
-    const installResult = await installExtensionDisabled(options.source);
+    // Prefer native OpenClaw install command with staged artifact; fallback to local copy.
+    const installResult = await installExtensionDisabled(acquired.sourcePath);
     if (installResult.ok) {
       console.log(style.green("  ✓ Installed through OpenClaw in disabled mode"));
     } else {
