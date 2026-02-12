@@ -233,7 +233,9 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
     });
 
     if (canEnable) {
-      const enableResult = await enableExtension(acquired.skillName);
+      // Use resolved install path name in case OpenClaw installed under a different name
+      const enableName = basename(installPath);
+      const enableResult = await enableExtension(enableName);
       if (!enableResult.ok) {
         // If OpenClaw enable fails, still clear local marker to avoid indefinite lockout
         // when operating in file-copy mode.
