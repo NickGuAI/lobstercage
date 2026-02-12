@@ -47,9 +47,10 @@ async function acquireSource(source: string, stagingRoot: string): Promise<Acqui
     }
 
     if (info.isFile()) {
-      await mkdir(destination, { recursive: true });
-      await cp(resolved, join(destination, basename(resolved)));
-      return { sourcePath: destination, skillName };
+      // Stage the file directly so downstream install uses the actual artifact
+      const fileDest = join(stagingRoot, basename(resolved));
+      await cp(resolved, fileDest);
+      return { sourcePath: fileDest, skillName };
     }
   }
 
@@ -120,7 +121,13 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
       console.log(style.green("  ✓ Installed through OpenClaw in disabled mode"));
     } else {
       await rm(installPath, { recursive: true, force: true });
-      await cp(acquired.sourcePath, installPath, { recursive: true });
+      const sourceInfo = await stat(acquired.sourcePath);
+      if (sourceInfo.isDirectory()) {
+        await cp(acquired.sourcePath, installPath, { recursive: true });
+      } else {
+        await mkdir(installPath, { recursive: true });
+        await cp(acquired.sourcePath, join(installPath, basename(acquired.sourcePath)));
+      }
       console.log(style.warn("  ! OpenClaw install unavailable/failed, used local disabled copy"));
     }
 

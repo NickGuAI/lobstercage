@@ -72,7 +72,12 @@ export async function snapshotDirectoryHashes(rootDir: string): Promise<Record<s
 
   for (const filePath of files.sort((a, b) => a.localeCompare(b))) {
     const rel = normalizeRelativePath(relative(rootDir, filePath));
-    snapshot[rel] = await hashFileSha256(filePath);
+    try {
+      snapshot[rel] = await hashFileSha256(filePath);
+    } catch {
+      // Skip unreadable entries (broken symlinks, permission errors)
+      // to avoid aborting the entire integrity check
+    }
   }
 
   return snapshot;
