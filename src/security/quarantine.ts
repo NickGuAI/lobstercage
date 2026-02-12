@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { getExtensionsDir, getLobstercageStateDir } from "./paths.js";
@@ -18,6 +18,25 @@ type QuarantineDb = {
   version: 1;
   records: QuarantineRecord[];
 };
+
+/**
+ * Move a directory from src to dest, falling back to cp+rm when rename()
+ * throws EXDEV (cross-device link). This happens when the extensions dir
+ * and the lobstercage state dir live on different mount points, which is
+ * common in containerized or NFS-backed deployments.
+ */
+async function moveDirectory(src: string, dest: string): Promise<void> {
+  try {
+    await rename(src, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EXDEV") {
+      await cp(src, dest, { recursive: true });
+      await rm(src, { recursive: true, force: true });
+    } else {
+      throw err;
+    }
+  }
+}
 
 function quarantineDir(): string {
   return join(getLobstercageStateDir(), "quarantine");
@@ -65,7 +84,7 @@ export async function quarantineSkill(
   const destination = join(quarantineDir(), `${timestamp.slice(0, 10)}-${skillName}-${id.slice(0, 8)}`);
 
   await mkdir(quarantineDir(), { recursive: true });
-  await rename(skillPath, destination);
+  await moveDirectory(skillPath, destination);
 
   const record: QuarantineRecord = {
     id,
@@ -100,7 +119,7 @@ export async function restoreQuarantinedSkill(identifier: string): Promise<{
   }
 
   await mkdir(dirname(record.originalPath), { recursive: true });
-  await rename(record.quarantinedPath, record.originalPath);
+  await moveDirectory(record.quarantinedPath, record.originalPath);
   record.restoredAt = new Date().toISOString();
   await saveDb(db);
 

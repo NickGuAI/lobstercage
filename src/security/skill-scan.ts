@@ -1,4 +1,4 @@
-import { readFile, readdir, lstat, stat } from "node:fs/promises";
+import { readFile, readdir, lstat, realpath, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { scanContent, getContentRules, getMalwareRules } from "../scanner/engine.js";
 import type { ScanRule, RuleAction, RuleCategory } from "../scanner/types.js";
@@ -88,7 +88,8 @@ async function listSkillDirectories(): Promise<Array<{ name: string; path: strin
   return skills.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function listFilesRecursive(dir: string): Promise<string[]> {
+async function listFilesRecursive(dir: string, rootDir?: string): Promise<string[]> {
+  const root = rootDir ?? dir;
   // Throws on readdir failure so callers can report unreadable skill paths
   const entries = await readdir(dir);
 
@@ -103,13 +104,29 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
     }
     if (info.isDirectory() && !info.isSymbolicLink()) {
       try {
-        files.push(...(await listFilesRecursive(fullPath)));
+        files.push(...(await listFilesRecursive(fullPath, root)));
       } catch {
         // Continue scanning siblings if a subdirectory is unreadable
       }
-    } else if (info.isFile() || info.isSymbolicLink()) {
-      // Include symlinked files so payloads behind symlinks are scanned
+    } else if (info.isFile()) {
       files.push(fullPath);
+    } else if (info.isSymbolicLink()) {
+      // Validate symlink target before scanning: a malicious skill could
+      // symlink to /etc/shadow or other sensitive files outside the skill
+      // directory. We resolve the real path and reject targets outside root,
+      // matching the same boundary check used in integrity.ts.
+      try {
+        const resolved = await realpath(fullPath);
+        if (!resolved.startsWith(root + "/") && resolved !== root) {
+          continue;
+        }
+        const targetInfo = await stat(fullPath);
+        if (targetInfo.isFile()) {
+          files.push(fullPath);
+        }
+      } catch {
+        // Broken or unresolvable symlink — skip
+      }
     }
   }
   return files;
