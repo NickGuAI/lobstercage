@@ -3,7 +3,7 @@ import { matrixFlow, printHeader, Spinner, style } from "../ui/matrix.js";
 import { renderReport, serializeReport } from "../ui/report.js";
 import { renderAuditReport, renderFixResults, serializeAuditReport } from "../ui/audit-report.js";
 import { confirm, reviewViolations, confirmRedactions } from "../ui/interactive.js";
-import { getPiiRules, getContentRules } from "../scanner/engine.js";
+import { getPiiRules, getContentRules, getMalwareRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
 import { applyRedactions } from "../forensic/redact.js";
 import { installGuard, uninstallGuard } from "../guard/install.js";
@@ -26,7 +26,7 @@ export type CatchOptions = {
 
 function loadRules(_configPath: string | null): ScanRule[] {
   // Future: load custom rules from config file
-  return [...getPiiRules(), ...getContentRules()];
+  return [...getPiiRules(), ...getContentRules(), ...getMalwareRules()];
 }
 
 /** Handle interactive redaction flow */
@@ -172,7 +172,7 @@ export async function runCatch(options: CatchOptions): Promise<void> {
 
     // Record forensic scan stats
     const forensicViolationEvents: ViolationEvent[] = [];
-    const violationCounts: Record<string, { category: "pii" | "content"; action: "warn" | "block" | "shutdown"; count: number }> = {};
+    const violationCounts: Record<string, { category: "pii" | "content" | "malware"; action: "warn" | "block" | "shutdown"; count: number }> = {};
     for (const v of report.violations) {
       if (!violationCounts[v.ruleId]) {
         violationCounts[v.ruleId] = { category: v.category, action: v.action, count: 0 };

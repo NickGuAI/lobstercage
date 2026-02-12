@@ -2,7 +2,7 @@
 
 export type ViolationEvent = {
   ruleId: string;
-  category: "pii" | "content";
+  category: "pii" | "content" | "malware";
   action: "warn" | "block" | "shutdown";
   count: number;
 };
@@ -10,7 +10,7 @@ export type ViolationEvent = {
 export type ScanEvent = {
   id: string;
   timestamp: string;
-  type: "forensic" | "guard" | "audit";
+  type: "forensic" | "guard" | "audit" | "skill-scan";
   violations: ViolationEvent[];
 };
 
@@ -23,7 +23,7 @@ export type DailySummary = {
 
 export type StoredRule = {
   id: string;
-  category: "pii" | "content";
+  category: "pii" | "content" | "malware";
   enabled: boolean;
   action: "warn" | "block" | "shutdown";
   /** For custom rules */

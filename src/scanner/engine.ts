@@ -92,6 +92,7 @@ export function scanContent(content: string, rules: ScanRule[]): Violation[] {
     if (rule.category === "pii") {
       violations.push(...scanPiiRule(content, rule));
     } else {
+      // content and malware rules both use patterns/keywords
       violations.push(...scanContentRule(content, rule));
     }
   }
@@ -115,6 +116,7 @@ export function resolveAction(violations: Violation[]): RuleAction {
   return maxAction;
 }
 
-/** Load all default rules (PII + content) */
+/** Load all default rules (PII + content + malware) */
 export { getPiiRules } from "./rules/pii.js";
 export { getContentRules } from "./rules/content.js";
+export { getMalwareRules } from "./rules/malware.js";

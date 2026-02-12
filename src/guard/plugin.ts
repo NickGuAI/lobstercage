@@ -32,6 +32,20 @@ const CONTENT_PATTERNS = [
   /disregard\\s+(all\\s+)?(prior|previous|above)\\s+(instructions|rules)/gi,
 ];
 
+// Malware patterns for staged delivery detection
+const MALWARE_PATTERNS = [
+  // Staged delivery: curl/wget piped to shell
+  /\\b(?:curl|wget)\\s+(?:-[a-zA-Z]*\\s+)*["']?https?:\\/\\/[^\\s"']+["']?\\s*\\|\\s*(?:bash|sh|zsh|ksh|dash)/gi,
+  // Base64 decoded and piped to shell
+  /\\bbase64\\s+(?:-[dD]|--decode)\\s*.*\\|\\s*(?:bash|sh|zsh|eval)/gi,
+  // Reverse shell patterns
+  /\\bbash\\s+-[ic]+\\s+["']bash\\s+-i\\s+>&?\\s*\\/dev\\/tcp\\/\\d/gi,
+  /\\b(?:nc|netcat|ncat)\\s+(?:-[a-zA-Z]*\\s+)*\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\s+\\d+\\s*(?:-e|-c)\\s*(?:\\/bin\\/(?:ba)?sh|cmd)/gi,
+  // Quarantine bypass (macOS)
+  /\\bxattr\\s+(?:-[cdrw]+\\s+)*-d\\s+com\\.apple\\.quarantine/gi,
+  /\\bspctl\\s+--master-disable/gi,
+];
+
 function luhnCheck(digits) {
   const nums = digits.replace(/\\D/g, "");
   let sum = 0, alt = false;
@@ -69,6 +83,15 @@ function scanContent(content) {
     let match;
     while ((match = re.exec(content)) !== null) {
       violations.push({ ruleId: "content-injection", action: "block", match: match[0] });
+    }
+  }
+
+  // Scan for malware patterns
+  for (const pattern of MALWARE_PATTERNS) {
+    const re = new RegExp(pattern.source, pattern.flags);
+    let match;
+    while ((match = re.exec(content)) !== null) {
+      violations.push({ ruleId: "malware-staged-delivery", action: "shutdown", match: match[0] });
     }
   }
 

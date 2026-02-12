@@ -1,4 +1,4 @@
-export type RuleCategory = "pii" | "content";
+export type RuleCategory = "pii" | "content" | "malware";
 export type RuleAction = "warn" | "block" | "shutdown";
 export type PiiType = "phone" | "email" | "ssn" | "credit-card" | "api-key" | "password";
 

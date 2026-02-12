@@ -4,19 +4,25 @@ import { parseArgs } from "node:util";
 import { runCatch, type CatchOptions } from "./commands/catch.js";
 import { runAuditCommand, type AuditCommandOptions } from "./commands/audit.js";
 import { runStatus, type StatusOptions } from "./commands/status.js";
+import { runScanSkills, type ScanSkillsOptions } from "./commands/scan-skills.js";
+import { runInstallSafe, type InstallSafeOptions } from "./commands/install-safe.js";
 
 const USAGE = `
 lobstercage — OpenClaw Security Scanner
 
 Usage:
-  lobstercage catch [options]    Full security scan (audit + forensic + guard)
-  lobstercage audit [options]    Config-only security audit
-  lobstercage status [options]   Show stats and open dashboard
+  lobstercage catch [options]        Full security scan (audit + forensic + guard)
+  lobstercage audit [options]        Config-only security audit
+  lobstercage status [options]       Show stats and open dashboard
+  lobstercage scan-skills [options]  Scan installed skills for malware
+  lobstercage install-safe <source>  Safely install a skill with pre/post scanning
 
 Commands:
   catch           Run full security scan and install live guard
   audit           Run config security audit only
   status          Show scan statistics and guard status
+  scan-skills     Scan installed skills for malware patterns
+  install-safe    Install a skill with security scanning pipeline
 
 Catch Options:
   --scan-only     Only run forensic scan (no audit, no guard install)
@@ -41,6 +47,20 @@ Status Options:
   --port <n>      Dashboard port (default: 8888)
   --days <n>      Stats for last N days (default: 7)
 
+Scan-Skills Options:
+  --quarantine      Quarantine skills with critical violations
+  --list-quarantine List all quarantined skills
+  --restore <id>    Restore a quarantined skill by ID
+  --delete <id>     Permanently delete a quarantined skill
+  --use-mcp-scan    Also run mcp-scan if available
+  --skip-malware    Skip malware pattern scanning
+
+Install-Safe Options:
+  --enable          Enable skill after installation (if clean)
+  --skip-mcp-scan   Skip mcp-scan external tool
+  --skip-malware    Skip malware pattern scanning
+  --force           Force install even if violations found
+
 Examples:
   lobstercage catch              # Full scan + guard install
   lobstercage catch --fix        # Full scan + auto-fix + guard
@@ -50,6 +70,9 @@ Examples:
   lobstercage catch --uninstall  # Remove guard plugin
   lobstercage status             # Show scan stats
   lobstercage status --dashboard # Open web dashboard
+  lobstercage scan-skills        # Scan all installed skills
+  lobstercage scan-skills --quarantine  # Quarantine flagged skills
+  lobstercage install-safe https://github.com/user/skill  # Safe install
 
   --help          Show this help message
 `;
@@ -73,6 +96,17 @@ function main(): void {
       dashboard: { type: "boolean", default: false },
       port: { type: "string", default: "8888" },
       days: { type: "string", default: "7" },
+      // Scan-skills options
+      quarantine: { type: "boolean", default: false },
+      "list-quarantine": { type: "boolean", default: false },
+      restore: { type: "string" },
+      delete: { type: "string" },
+      "use-mcp-scan": { type: "boolean", default: false },
+      "skip-malware": { type: "boolean", default: false },
+      // Install-safe options
+      enable: { type: "boolean", default: false },
+      "skip-mcp-scan": { type: "boolean", default: false },
+      force: { type: "boolean", default: false },
     },
   });
 
@@ -120,6 +154,41 @@ function main(): void {
     };
 
     runStatus(options).catch((err) => {
+      console.error("Fatal error:", err);
+      process.exit(1);
+    });
+  } else if (command === "scan-skills") {
+    const options: ScanSkillsOptions = {
+      quarantine: values.quarantine ?? false,
+      listQuarantined: values["list-quarantine"] ?? false,
+      restore: values.restore ?? null,
+      delete: values.delete ?? null,
+      useMcpScan: values["use-mcp-scan"] ?? false,
+      skipMalware: values["skip-malware"] ?? false,
+    };
+
+    runScanSkills(options).catch((err) => {
+      console.error("Fatal error:", err);
+      process.exit(1);
+    });
+  } else if (command === "install-safe") {
+    const source = positionals[1];
+
+    if (!source) {
+      console.error("Error: install-safe requires a source argument");
+      console.log("Usage: lobstercage install-safe <source>");
+      process.exit(1);
+    }
+
+    const options: InstallSafeOptions = {
+      source,
+      enableAfterInstall: values.enable ?? false,
+      skipMcpScan: values["skip-mcp-scan"] ?? false,
+      skipMalware: values["skip-malware"] ?? false,
+      force: values.force ?? false,
+    };
+
+    runInstallSafe(options).catch((err) => {
       console.error("Fatal error:", err);
       process.exit(1);
     });

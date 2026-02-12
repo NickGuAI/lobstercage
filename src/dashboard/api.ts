@@ -187,7 +187,7 @@ async function handleScan(
 
     // Record stats
     const violationEvents: ViolationEvent[] = [];
-    const violationCounts: Record<string, { category: "pii" | "content"; action: "warn" | "block" | "shutdown"; count: number }> = {};
+    const violationCounts: Record<string, { category: "pii" | "content" | "malware"; action: "warn" | "block" | "shutdown"; count: number }> = {};
     for (const v of report.violations) {
       if (!violationCounts[v.ruleId]) {
         violationCounts[v.ruleId] = { category: v.category, action: v.action, count: 0 };
