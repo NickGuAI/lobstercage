@@ -24,12 +24,7 @@ function normalizeRelativePath(filePath: string): string {
 }
 
 async function listFilesRecursive(dir: string): Promise<string[]> {
-  let entries: string[] = [];
-  try {
-    entries = await readdir(dir);
-  } catch {
-    return [];
-  }
+  const entries = await readdir(dir);
 
   const files: string[] = [];
   for (const entry of entries) {
@@ -41,8 +36,13 @@ async function listFilesRecursive(dir: string): Promise<string[]> {
       continue;
     }
     if (info.isDirectory() && !info.isSymbolicLink()) {
-      files.push(...(await listFilesRecursive(entryPath)));
-    } else if (info.isFile() && !info.isSymbolicLink()) {
+      try {
+        files.push(...(await listFilesRecursive(entryPath)));
+      } catch {
+        // Continue scanning siblings if a subdirectory is unreadable
+      }
+    } else if (info.isFile() || info.isSymbolicLink()) {
+      // Include symlinks so retargeted files trigger drift detection
       files.push(entryPath);
     }
   }
