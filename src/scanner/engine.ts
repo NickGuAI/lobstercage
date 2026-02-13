@@ -115,6 +115,7 @@ export function resolveAction(violations: Violation[]): RuleAction {
   return maxAction;
 }
 
-/** Load all default rules (PII + content) */
+/** Load all default rules (PII + content + malware) */
 export { getPiiRules } from "./rules/pii.js";
 export { getContentRules } from "./rules/content.js";
+export { getMalwareRules } from "./rules/malware.js";

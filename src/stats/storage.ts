@@ -117,7 +117,7 @@ function updateDailySummary(
 
 /** Record a new scan event */
 export async function recordScanEvent(
-  type: "forensic" | "guard" | "audit",
+  type: "forensic" | "guard" | "audit" | "skill-scan" | "integrity" | "install-safe",
   violations: ViolationEvent[]
 ): Promise<void> {
   const stats = await loadStats();

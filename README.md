@@ -28,9 +28,11 @@ lobstercage catch
 ## Commands
 
 ```bash
-lobstercage catch [options]    # Full scan: audit + forensic scan + guard install
-lobstercage audit [options]    # Config-only audit
-lobstercage status [options]   # Show stats and open web dashboard
+lobstercage catch [options]                 # Full pipeline: audit -> skill scan -> integrity -> forensic -> guard
+lobstercage audit [options]                 # Config-only audit
+lobstercage status [options]                # Show stats and open web dashboard
+lobstercage install-safe <source> [options] # Safe install workflow with pre/post scanner gating
+lobstercage scan-skills [options]           # Scan installed skills and quarantine suspicious ones
 ```
 
 ### `catch` options
@@ -58,6 +60,16 @@ lobstercage status [options]   # Show stats and open web dashboard
 - `--port <n>`   Dashboard port (default: 8888)
 - `--days <n>`   Stats for last N days (default: 7)
 
+### `install-safe` options
+
+- `--enable` Enable skill only after clean pre/post external scan results
+
+### `scan-skills` options
+
+- `--quarantine` Move flagged skills into quarantine
+- `--restore <id>` Restore a quarantined skill by id or skill name
+- `--json` Output result as JSON
+
 ## Examples
 
 ```bash
@@ -78,6 +90,15 @@ npx lobstercage audit --fix
 
 # Uninstall guard plugin
 npx lobstercage catch --uninstall
+
+# Safe install a skill and auto-enable only on clean scans
+npx lobstercage install-safe ~/Downloads/my-skill --enable
+
+# Scan installed skills and quarantine suspicious ones
+npx lobstercage scan-skills --quarantine
+
+# Restore quarantined skill
+npx lobstercage scan-skills --restore <quarantine-id>
 
 # Use custom OpenClaw location
 OPENCLAW_STATE_DIR=~/my-openclaw npx lobstercage catch
@@ -101,8 +122,10 @@ npx lobstercage status --dashboard --port 9000
 ## What gets scanned
 
 - **Config audit**: Reads your OpenClaw config file and checks security settings.
+- **Skill scan**: Scans installed skills/extensions for staged-delivery malware patterns.
+- **Integrity drift**: Compares extension file hashes against a stored baseline.
 - **Forensic scan**: Scans assistant messages in session JSONL files for PII and prompt-injection patterns.
-- **Live guard**: Installs a plugin that blocks outgoing messages containing detected PII or injection patterns.
+- **Live guard**: Installs a plugin that blocks outgoing messages containing detected PII, injection, or malware execution patterns.
 
 ## Paths and configuration
 
@@ -149,7 +172,7 @@ The guard plugin is installed to `{stateDir}/extensions/lobstercage/` and provid
 | Hook | Function |
 |------|----------|
 | `before_agent_start` | Injects a security directive instructing the AI not to output PII |
-| `message_sending` | Blocks outgoing messages containing detected PII (SSN, credit cards, API keys) |
+| `message_sending` | Blocks outgoing messages containing detected PII, malware execution, or injection payloads |
 | `agent_end` | Logs any violations that slip through for auditing |
 
 ## Auto-fix behavior
@@ -196,6 +219,7 @@ ssh -L 8888:localhost:8888 user@remote-host
 Scan statistics are stored in `~/.openclaw/lobstercage/stats.json` and include:
 
 - Scan events with timestamps and violation counts
+- Skill scan and integrity drift events
 - Daily summaries for trend analysis
 - Rule configuration overrides
 

@@ -8,7 +8,7 @@ import {
   addCustomRule,
   removeCustomRule,
 } from "../stats/rules-config.js";
-import { getPiiRules, getContentRules } from "../scanner/engine.js";
+import { getPiiRules, getContentRules, getMalwareRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
 import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
 import type { StoredRule, ViolationEvent } from "../stats/types.js";
@@ -182,25 +182,25 @@ async function handleScan(
     lastScanResult = null;
 
     // Run forensic scan
-    const rules = [...getPiiRules(), ...getContentRules()];
+    const rules = [...getPiiRules(), ...getContentRules(), ...getMalwareRules()];
     const report = await forensicScan(rules);
 
     // Record stats
     const violationEvents: ViolationEvent[] = [];
-    const violationCounts: Record<string, { category: "pii" | "content"; action: "warn" | "block" | "shutdown"; count: number }> = {};
+    const violationCounts: Record<string, ViolationEvent> = {};
     for (const v of report.violations) {
       if (!violationCounts[v.ruleId]) {
-        violationCounts[v.ruleId] = { category: v.category, action: v.action, count: 0 };
+        violationCounts[v.ruleId] = {
+          ruleId: v.ruleId,
+          category: v.category,
+          action: v.action,
+          count: 0,
+        };
       }
       violationCounts[v.ruleId].count++;
     }
-    for (const [ruleId, data] of Object.entries(violationCounts)) {
-      violationEvents.push({
-        ruleId,
-        category: data.category,
-        action: data.action,
-        count: data.count,
-      });
+    for (const data of Object.values(violationCounts)) {
+      violationEvents.push(data);
     }
     await recordScanEvent("forensic", violationEvents);
 

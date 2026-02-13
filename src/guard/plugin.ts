@@ -32,6 +32,12 @@ const CONTENT_PATTERNS = [
   /disregard\\s+(all\\s+)?(prior|previous|above)\\s+(instructions|rules)/gi,
 ];
 
+const MALWARE_PATTERNS = [
+  { id: "malware-staged-delivery", action: "shutdown", re: /\\b(?:curl|wget)\\b[\\s\\S]{0,220}?\\|\\s*(?:sh|bash|zsh)\\b/gi },
+  { id: "malware-encoded-exec", action: "shutdown", re: /\\b(?:echo|printf)\\b[\\s\\S]{0,220}?\\bbase64\\b[\\s\\S]{0,80}?(?:-d|--decode)\\b[\\s\\S]{0,100}?\\|\\s*(?:sh|bash|zsh)\\b/gi },
+  { id: "malware-quarantine-bypass", action: "block", re: /\\brm\\s+-rf\\s+.*(?:quarantine|isolat(?:e|ion)|containment)/gi },
+];
+
 function luhnCheck(digits) {
   const nums = digits.replace(/\\D/g, "");
   let sum = 0, alt = false;
@@ -72,6 +78,14 @@ function scanContent(content) {
     }
   }
 
+  for (const item of MALWARE_PATTERNS) {
+    const re = new RegExp(item.re.source, item.re.flags);
+    let match;
+    while ((match = re.exec(content)) !== null) {
+      violations.push({ ruleId: item.id, action: item.action, match: match[0] });
+    }
+  }
+
   return violations;
 }
 
@@ -93,7 +107,7 @@ const SECURITY_DIRECTIVE = ${jsonEscaped};
 module.exports = {
   id: "lobstercage",
   name: "Lobstercage Security Guard",
-  description: "Scans outgoing messages for PII and policy violations",
+  description: "Scans outgoing messages for PII, policy, and malware execution patterns",
 
   register(api) {
     try {
@@ -160,7 +174,7 @@ export const PLUGIN_SOURCE = buildPluginSource(SECURITY_DIRECTIVE);
 export const PLUGIN_MANIFEST = {
   name: "lobstercage",
   version: "0.1.0",
-  description: "Lobstercage Security Guard - Scans outgoing messages for PII and policy violations",
+  description: "Lobstercage Security Guard - Scans outgoing messages for PII, policy, and malware execution patterns",
   main: "index.js",
   openclaw: {
     extensions: ["index.js"],
@@ -170,7 +184,7 @@ export const PLUGIN_MANIFEST = {
 export const OPENCLAW_PLUGIN_JSON = {
   id: "lobstercage",
   name: "Lobstercage Security Guard",
-  description: "Scans outgoing messages for PII and policy violations",
+  description: "Scans outgoing messages for PII, policy, and malware execution patterns",
   version: "0.1.0",
   configSchema: {
     type: "object",

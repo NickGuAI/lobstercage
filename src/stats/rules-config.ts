@@ -11,8 +11,11 @@ const DEFAULT_RULES: StoredRule[] = [
   { id: "pii-credit-card", category: "pii", enabled: true, action: "block" },
   { id: "pii-api-key", category: "pii", enabled: true, action: "block" },
   { id: "pii-password", category: "pii", enabled: true, action: "warn" },
-  { id: "content-secrets", category: "content", enabled: true, action: "block" },
-  { id: "content-private-key", category: "content", enabled: true, action: "shutdown" },
+  { id: "content-injection", category: "content", enabled: true, action: "block" },
+  { id: "content-exfiltration", category: "content", enabled: true, action: "block" },
+  { id: "malware-staged-delivery", category: "malware", enabled: true, action: "shutdown" },
+  { id: "malware-encoded-exec", category: "malware", enabled: true, action: "shutdown" },
+  { id: "malware-quarantine-bypass", category: "malware", enabled: true, action: "block" },
 ];
 
 /** Load rule config, merging defaults with stored overrides */
