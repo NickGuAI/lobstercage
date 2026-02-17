@@ -41,6 +41,12 @@ describe("scanContent — PII rules", () => {
     expect(ccs[0].action).toBe("shutdown");
   });
 
+  it("detects credit card numbers with multi-char separators", () => {
+    const violations = scanContent("Card: 4111 - 1111 - 1111 - 1111", rules);
+    const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
+    expect(ccs.length).toBe(1);
+  });
+
   it("ignores invalid credit card numbers", () => {
     const violations = scanContent("Number: 1234 5678 9012 3456", rules);
     const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
