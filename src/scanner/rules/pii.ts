@@ -30,8 +30,8 @@ export const PII_PATTERNS: Record<string, RegExp[]> = {
     /\b\d{3}-\d{2}-\d{4}\b/g,
   ],
   "credit-card": [
-    // 13-19 digit sequences, optionally separated by spaces or dashes
-    /\b(?:\d[ -]*?){13,19}\b/g,
+    // Broad match for 13-23 char digit/separator sequences; post-filter validates digit count + Luhn
+    /\b\d(?:[\d -]{11,21})\d\b/g,
   ],
   "api-key": [
     // OpenAI

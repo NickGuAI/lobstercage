@@ -47,6 +47,16 @@ describe("scanContent — PII rules", () => {
     expect(ccs.length).toBe(0);
   });
 
+  it("handles long digit sequences without catastrophic backtracking", () => {
+    const longDigits = "9".repeat(200);
+    const start = performance.now();
+    const violations = scanContent(`ID: ${longDigits}`, rules);
+    const elapsed = performance.now() - start;
+    const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
+    expect(ccs.length).toBe(0);
+    expect(elapsed).toBeLessThan(50);
+  });
+
   it("detects API keys", () => {
     const violations = scanContent("Key: sk-abc12345678901234567890", rules);
     const keys = violations.filter((v) => v.ruleId === "pii-api-key");
