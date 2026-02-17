@@ -41,10 +41,26 @@ describe("scanContent — PII rules", () => {
     expect(ccs[0].action).toBe("shutdown");
   });
 
+  it("detects credit card numbers with multi-char separators", () => {
+    const violations = scanContent("Card: 4111 - 1111 - 1111 - 1111", rules);
+    const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
+    expect(ccs.length).toBe(1);
+  });
+
   it("ignores invalid credit card numbers", () => {
     const violations = scanContent("Number: 1234 5678 9012 3456", rules);
     const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
     expect(ccs.length).toBe(0);
+  });
+
+  it("handles long digit sequences without catastrophic backtracking", () => {
+    const longDigits = "9".repeat(200);
+    const start = performance.now();
+    const violations = scanContent(`ID: ${longDigits}`, rules);
+    const elapsed = performance.now() - start;
+    const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
+    expect(ccs.length).toBe(0);
+    expect(elapsed).toBeLessThan(50);
   });
 
   it("detects API keys", () => {
