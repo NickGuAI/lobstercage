@@ -25,11 +25,19 @@ type ApiResponse = {
   error?: string;
 };
 
+const MAX_BODY_SIZE = 1_048_576; // 1 MB
+
 /** Parse JSON body from request */
 async function parseBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > MAX_BODY_SIZE) {
+        req.destroy();
+        reject(new Error("Body too large"));
+      }
+    });
     req.on("end", () => {
       try {
         resolve(body ? JSON.parse(body) : {});
