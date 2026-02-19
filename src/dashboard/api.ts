@@ -25,29 +25,112 @@ type ApiResponse = {
   error?: string;
 };
 
+const MAX_BODY_BYTES = 1 * 1024 * 1024;
+const BODY_TOO_LARGE_ERROR = "Body too large";
+
 /** Parse JSON body from request */
 async function parseBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    let onData: (chunk: Buffer | string) => void = () => {};
+    let onEnd: () => void = () => {};
+    let onError: (err: Error) => void = () => {};
     let body = "";
-    req.on("data", (chunk) => (body += chunk));
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(new Error("Invalid JSON"));
+    let bodyBytes = 0;
+    let settled = false;
+
+    const cleanup = (): void => {
+      req.off("data", onData);
+      req.off("end", onEnd);
+    };
+
+    const resolveOnce = (value: unknown): void => {
+      if (settled) {
+        return;
       }
-    });
-    req.on("error", reject);
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const rejectOnce = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    const contentLengthHeader = req.headers["content-length"];
+    const declaredBodyBytes = Array.isArray(contentLengthHeader)
+      ? Number.parseInt(contentLengthHeader[0] || "", 10)
+      : Number.parseInt(contentLengthHeader || "", 10);
+    if (!Number.isNaN(declaredBodyBytes) && declaredBodyBytes > MAX_BODY_BYTES) {
+      req.pause();
+      rejectOnce(new Error(BODY_TOO_LARGE_ERROR));
+      return;
+    }
+
+    onData = (chunk: Buffer | string): void => {
+      const chunkBytes = Buffer.isBuffer(chunk)
+        ? chunk.length
+        : Buffer.byteLength(chunk);
+      bodyBytes += chunkBytes;
+      if (bodyBytes > MAX_BODY_BYTES) {
+        req.pause();
+        rejectOnce(new Error(BODY_TOO_LARGE_ERROR));
+        return;
+      }
+      body += chunk.toString();
+    };
+
+    onEnd = (): void => {
+      try {
+        resolveOnce(body ? JSON.parse(body) : {});
+      } catch {
+        rejectOnce(new Error("Invalid JSON"));
+      }
+    };
+
+    onError = (err: Error): void => rejectOnce(err);
+
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
   });
 }
 
 /** Send JSON response */
-function sendJson(res: ServerResponse, data: ApiResponse, status = 200): void {
+function sendJson(
+  res: ServerResponse,
+  data: ApiResponse,
+  status = 200,
+  headers?: Record<string, string>
+): void {
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
+    ...headers,
   });
   res.end(JSON.stringify(data));
+}
+
+function sendApiError(req: IncomingMessage, res: ServerResponse, err: unknown): void {
+  if (err instanceof Error && err.message === BODY_TOO_LARGE_ERROR) {
+    res.once("finish", () => {
+      if (!req.destroyed) {
+        req.destroy();
+      }
+    });
+    sendJson(
+      res,
+      { success: false, error: BODY_TOO_LARGE_ERROR },
+      413,
+      { Connection: "close" }
+    );
+    return;
+  }
+  sendJson(res, { success: false, error: String(err) }, 500);
 }
 
 /** Handle GET /api/stats */
@@ -123,7 +206,7 @@ async function handleUpdateRule(
     await updateRule(body.ruleId, body.updates);
     sendJson(res, { success: true });
   } catch (err) {
-    sendJson(res, { success: false, error: String(err) }, 500);
+    sendApiError(req, res, err);
   }
 }
 
@@ -143,7 +226,7 @@ async function handleAddRule(
     await addCustomRule(body.rule);
     sendJson(res, { success: true });
   } catch (err) {
-    sendJson(res, { success: false, error: String(err) }, 500);
+    sendApiError(req, res, err);
   }
 }
 
@@ -163,7 +246,7 @@ async function handleRemoveRule(
     await removeCustomRule(body.ruleId);
     sendJson(res, { success: true });
   } catch (err) {
-    sendJson(res, { success: false, error: String(err) }, 500);
+    sendApiError(req, res, err);
   }
 }
 
