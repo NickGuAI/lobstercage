@@ -1,6 +1,6 @@
 // Config loader for OpenClaw configuration files
 
-import { readFile, readdir, stat, access } from "node:fs/promises";
+import { readFile, readdir, stat, lstat, access } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import type { OpenClawConfig } from "./types.js";
@@ -150,7 +150,7 @@ export async function getFileMode(path: string): Promise<string | null> {
 /** Check if path is a symlink */
 export async function isSymlink(path: string): Promise<boolean> {
   try {
-    const info = await stat(path);
+    const info = await lstat(path);
     return info.isSymbolicLink();
   } catch {
     return false;
