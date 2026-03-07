@@ -35,20 +35,6 @@ function redactString(original: string): string {
   return original.slice(0, 2) + "*".repeat(original.length - 4) + original.slice(-2);
 }
 
-/** Apply redaction to content string */
-function redactInContent(content: string, matchPreview: string): string {
-  // The matchPreview is already redacted (e.g., "+1********61")
-  // We need to find the original pattern and redact it
-  // Since we don't have the original, we'll use a heuristic:
-  // Find strings that match the redaction pattern
-  
-  // For now, use a simple approach: find patterns that could match
-  // This works because the violation's position is relative to the message content
-  
-  // Actually, we need to be smarter. Let's use regex patterns based on rule type
-  return content;
-}
-
 /** Parse JSONL file */
 function parseJsonl(text: string): JsonlEntry[] {
   const entries: JsonlEntry[] = [];
@@ -130,7 +116,10 @@ const REDACTION_PATTERNS: Record<string, RegExp[]> = {
 /** Apply redaction to a message's content for a specific rule */
 function redactContent(content: string, ruleId: string): string {
   const patterns = REDACTION_PATTERNS[ruleId];
-  if (!patterns) return content;
+  if (!patterns) {
+    console.warn(`[lobstercage] No redaction pattern for rule "${ruleId}" — content left unchanged`);
+    return content;
+  }
 
   let result = content;
   for (const pattern of patterns) {

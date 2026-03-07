@@ -115,33 +115,39 @@ function updateDailySummary(
   }
 }
 
+/** Serializes concurrent recordScanEvent calls to prevent lost-update races */
+let _statsLock: Promise<void> = Promise.resolve();
+
 /** Record a new scan event */
 export async function recordScanEvent(
   type: "forensic" | "guard" | "audit" | "skill-scan" | "integrity" | "install-safe",
   violations: ViolationEvent[]
 ): Promise<void> {
-  const stats = await loadStats();
+  _statsLock = _statsLock.then(async () => {
+    const stats = await loadStats();
 
-  const event: ScanEvent = {
-    id: randomUUID(),
-    timestamp: new Date().toISOString(),
-    type,
-    violations,
-  };
+    const event: ScanEvent = {
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      type,
+      violations,
+    };
 
-  stats.events.push(event);
-  stats.dailySummaries = updateDailySummary(stats.dailySummaries, violations);
+    stats.events.push(event);
+    stats.dailySummaries = updateDailySummary(stats.dailySummaries, violations);
 
-  // Prune old events (keep last 90 days)
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 90);
-  const cutoffStr = cutoff.toISOString();
-  stats.events = stats.events.filter((e) => e.timestamp >= cutoffStr);
-  stats.dailySummaries = stats.dailySummaries.filter(
-    (s) => s.date >= cutoffStr.slice(0, 10)
-  );
+    // Prune old events (keep last 90 days)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 90);
+    const cutoffStr = cutoff.toISOString();
+    stats.events = stats.events.filter((e) => e.timestamp >= cutoffStr);
+    stats.dailySummaries = stats.dailySummaries.filter(
+      (s) => s.date >= cutoffStr.slice(0, 10)
+    );
 
-  await saveStats(stats);
+    await saveStats(stats);
+  });
+  return _statsLock;
 }
 
 /** Get stats for last N days */
