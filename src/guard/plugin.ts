@@ -1,7 +1,17 @@
 // OpenClaw plugin source — this file gets written to ~/.openclaw/extensions/lobstercage/
 // It runs inside OpenClaw's plugin runtime, so it must be self-contained.
 
+import { createRequire } from "node:module";
 import { SECURITY_DIRECTIVE } from "./prompts.js";
+
+const require = createRequire(import.meta.url);
+const packageJson = require("../../package.json") as { version?: string };
+
+if (typeof packageJson.version !== "string") {
+  throw new Error("Invalid package.json: expected a string version field");
+}
+
+export const PLUGIN_VERSION = packageJson.version;
 
 // Helper to build the plugin source with the security directive injected
 function buildPluginSource(securityDirective: string): string {
@@ -173,7 +183,7 @@ export const PLUGIN_SOURCE = buildPluginSource(SECURITY_DIRECTIVE);
 
 export const PLUGIN_MANIFEST = {
   name: "lobstercage",
-  version: "0.1.0",
+  version: PLUGIN_VERSION,
   description: "Lobstercage Security Guard - Scans outgoing messages for PII, policy, and malware execution patterns",
   main: "index.js",
   openclaw: {
@@ -185,7 +195,7 @@ export const OPENCLAW_PLUGIN_JSON = {
   id: "lobstercage",
   name: "Lobstercage Security Guard",
   description: "Scans outgoing messages for PII, policy, and malware execution patterns",
-  version: "0.1.0",
+  version: PLUGIN_VERSION,
   configSchema: {
     type: "object",
     additionalProperties: false,
