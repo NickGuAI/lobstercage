@@ -25,12 +25,14 @@ export function getStateDir(): string {
   return join(homedir(), ".openclaw");
 }
 
-/** Strip comments and trailing commas from JSON5-like config (simple parser) */
+/** Strip comments and trailing commas from JSON5-like config (string-aware) */
 function sanitizeJson5(text: string): string {
-  // Remove single-line comments (// ...)
-  let result = text.replace(/\/\/[^\n]*/g, "");
-  // Remove multi-line comments (/* ... */)
-  result = result.replace(/\/\*[\s\S]*?\*\//g, "");
+  // Match string literals first to preserve their content, then strip comments.
+  // Order of alternation matters: strings are matched before comment tokens.
+  let result = text.replace(
+    /"(?:[^"\\]|\\.)*"|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+    (match) => (match.startsWith('"') ? match : "")
+  );
   // Remove trailing commas before } or ]
   result = result.replace(/,(\s*[}\]])/g, "$1");
   return result;
