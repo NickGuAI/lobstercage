@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -40,4 +40,45 @@ export async function discoverSessionFiles(): Promise<string[]> {
   }
 
   return files;
+}
+
+export type AgentSessions = {
+  agentId: string;
+  sessionFiles: string[];
+};
+
+/** Discover session files grouped by agent ID, optionally filtering by recency */
+export async function discoverAgentSessions(maxAgeDays?: number): Promise<AgentSessions[]> {
+  const baseDir = join(getStateDir(), "agents");
+  const agents: AgentSessions[] = [];
+  const cutoff = maxAgeDays ? Date.now() - maxAgeDays * 86400000 : 0;
+
+  try {
+    const agentDirs = await readdir(baseDir);
+    for (const agentId of agentDirs) {
+      const sessionsDir = join(baseDir, agentId, "sessions");
+      try {
+        const entries = await readdir(sessionsDir);
+        const files: string[] = [];
+        for (const file of entries) {
+          if (!file.endsWith(".jsonl")) continue;
+          const fullPath = join(sessionsDir, file);
+          if (cutoff) {
+            const info = await stat(fullPath);
+            if (info.mtimeMs < cutoff) continue;
+          }
+          files.push(fullPath);
+        }
+        if (files.length > 0) {
+          agents.push({ agentId, sessionFiles: files });
+        }
+      } catch {
+        // No sessions directory — skip
+      }
+    }
+  } catch {
+    // No agents directory
+  }
+
+  return agents;
 }

@@ -34,6 +34,7 @@ Catch Options:
   --report <path> Write report to file
   --config <path> Custom config file path
   --uninstall     Remove the lobstercage guard plugin
+  --json          Output scan results as JSON (machine-readable)
 
 Audit Options:
   --fix           Auto-fix remediable security issues
@@ -46,6 +47,7 @@ Status Options:
   --dashboard     Open web dashboard
   --port <n>      Dashboard port (default: 8888)
   --days <n>      Stats for last N days (default: 7)
+  --by-agent      Group violation counts by agent ID
 
 Install-safe Options:
   --enable        Enable skill only after clean pre/post scans
@@ -66,6 +68,7 @@ Examples:
   lobstercage scan-skills --quarantine
   lobstercage scan-skills --restore <quarantine-id>
   lobstercage status             # Show scan stats
+  lobstercage status --by-agent  # Per-agent violation breakdown
   lobstercage status --dashboard # Open web dashboard
 
   --help          Show this help message
@@ -93,6 +96,7 @@ function main(): void {
       dashboard: { type: "boolean", default: false },
       port: { type: "string", default: "8888" },
       days: { type: "string", default: "7" },
+      "by-agent": { type: "boolean", default: false },
     },
   });
 
@@ -125,6 +129,7 @@ function main(): void {
       uninstall: values.uninstall ?? false,
       reportPath: values.report ?? null,
       configPath: values.config ?? null,
+      json: values.json ?? false,
     };
 
     runCatch(options).catch((err) => {
@@ -137,6 +142,7 @@ function main(): void {
       dashboard: values.dashboard ?? false,
       port: parseInt(values.port as string, 10) || 8888,
       days: parseInt(values.days as string, 10) || 7,
+      byAgent: values["by-agent"] ?? false,
     };
 
     runStatus(options).catch((err) => {
