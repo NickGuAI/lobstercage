@@ -1,6 +1,6 @@
 import { readFile, readdir, lstat, realpath, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { scanContent, getContentRules, getMalwareRules } from "../scanner/engine.js";
+import { scanContent, loadAllRules } from "../scanner/engine.js";
 import type { ScanRule, RuleAction, RuleCategory } from "../scanner/types.js";
 import { quarantineSkill, type QuarantineRecord } from "./quarantine.js";
 import { getExtensionsDir } from "./paths.js";
@@ -147,7 +147,7 @@ function isLikelyText(buffer: Buffer): boolean {
 }
 
 export async function scanInstalledSkills(options: SkillScanOptions): Promise<SkillScanReport> {
-  const rules = options.rules ?? [...getMalwareRules(), ...getContentRules()];
+  const rules = options.rules ?? await loadAllRules();
   const report: SkillScanReport = {
     skillsScanned: 0,
     findings: [],

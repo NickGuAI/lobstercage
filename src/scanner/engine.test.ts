@@ -31,14 +31,14 @@ describe("scanContent — PII rules", () => {
     const violations = scanContent("SSN: 123-45-6789", rules);
     const ssns = violations.filter((v) => v.ruleId === "pii-ssn");
     expect(ssns.length).toBe(1);
-    expect(ssns[0].action).toBe("shutdown");
+    expect(ssns[0].action).toBe("block");
   });
 
   it("detects credit card numbers with Luhn validation", () => {
     const violations = scanContent("Card: 4111 1111 1111 1111", rules);
     const ccs = violations.filter((v) => v.ruleId === "pii-credit-card");
     expect(ccs.length).toBe(1);
-    expect(ccs[0].action).toBe("shutdown");
+    expect(ccs[0].action).toBe("block");
   });
 
   it("detects credit card numbers with multi-char separators", () => {

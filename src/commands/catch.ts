@@ -3,7 +3,7 @@ import { matrixFlow, printHeader, Spinner, style } from "../ui/matrix.js";
 import { renderReport, serializeReport } from "../ui/report.js";
 import { renderAuditReport, renderFixResults, serializeAuditReport } from "../ui/audit-report.js";
 import { confirm, reviewViolations, confirmRedactions } from "../ui/interactive.js";
-import { getPiiRules, getContentRules, getMalwareRules } from "../scanner/engine.js";
+import { loadAllRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
 import { applyRedactions } from "../forensic/redact.js";
 import { installGuard, uninstallGuard } from "../guard/install.js";
@@ -26,9 +26,9 @@ export type CatchOptions = {
   configPath: string | null;
 };
 
-function loadRules(_configPath: string | null): ScanRule[] {
-  // Future: load custom rules from config file
-  return [...getPiiRules(), ...getContentRules(), ...getMalwareRules()];
+async function loadRules(_configPath: string | null): Promise<ScanRule[]> {
+  // Load rules with dashboard config overrides applied
+  return loadAllRules();
 }
 
 function countViolationsByRule(violations: ViolationEvent[]): ViolationEvent[] {
@@ -148,7 +148,7 @@ export async function runCatch(options: CatchOptions): Promise<void> {
   await matrixFlow(1200);
   printHeader();
 
-  const rules = loadRules(options.configPath);
+  const rules = await loadRules(options.configPath);
   const reportSections: string[] = [];
 
   let auditResult: AuditResult | null = null;

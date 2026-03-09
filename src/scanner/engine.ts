@@ -1,5 +1,8 @@
 import type { ScanRule, Violation, RuleAction } from "./types.js";
-import { PII_PATTERNS, luhnCheck } from "./rules/pii.js";
+import { PII_PATTERNS, luhnCheck, getPiiRules as _getPiiRules } from "./rules/pii.js";
+import { getContentRules as _getContentRules } from "./rules/content.js";
+import { getMalwareRules as _getMalwareRules } from "./rules/malware.js";
+import { loadRuleConfig } from "../stats/rules-config.js";
 
 /** Redact a matched string, showing first 2 and last 2 chars */
 function redact(match: string): string {
@@ -119,3 +122,18 @@ export function resolveAction(violations: Violation[]): RuleAction {
 export { getPiiRules } from "./rules/pii.js";
 export { getContentRules } from "./rules/content.js";
 export { getMalwareRules } from "./rules/malware.js";
+
+/** Load all rules with dashboard config overrides applied */
+export async function loadAllRules(): Promise<ScanRule[]> {
+  const baseRules = [..._getPiiRules(), ..._getContentRules(), ..._getMalwareRules()];
+  const config = await loadRuleConfig();
+  const configMap = new Map(config.rules.map((r) => [r.id, r]));
+
+  return baseRules.map((rule) => {
+    const override = configMap.get(rule.id);
+    if (override) {
+      return { ...rule, action: override.action, enabled: override.enabled };
+    }
+    return rule;
+  });
+}

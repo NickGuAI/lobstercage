@@ -8,7 +8,7 @@ import {
   addCustomRule,
   removeCustomRule,
 } from "../stats/rules-config.js";
-import { getPiiRules, getContentRules, getMalwareRules } from "../scanner/engine.js";
+import { loadAllRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
 import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
 import type { StoredRule, ViolationEvent } from "../stats/types.js";
@@ -265,7 +265,7 @@ async function handleScan(
     lastScanResult = null;
 
     // Run forensic scan
-    const rules = [...getPiiRules(), ...getContentRules(), ...getMalwareRules()];
+    const rules = await loadAllRules();
     const report = await forensicScan(rules);
 
     // Record stats
