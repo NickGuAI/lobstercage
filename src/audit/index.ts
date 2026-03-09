@@ -8,6 +8,7 @@ export type {
   Severity,
   CheckCategory,
   OpenClawConfig,
+  McpServerConfig,
 } from "./types.js";
 
 export { runAudit, getFixableFindings } from "./runner.js";

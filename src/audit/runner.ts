@@ -10,6 +10,7 @@ import { checkSecrets } from "./checks/secrets.js";
 import { checkPlugins } from "./checks/plugins.js";
 import { checkBrowser } from "./checks/browser.js";
 import { checkApproval } from "./checks/approval.js";
+import { checkMcp } from "./checks/mcp.js";
 
 /** Run all security audit checks */
 export async function runAudit(options: AuditOptions): Promise<AuditResult> {
@@ -37,6 +38,11 @@ export async function runAudit(options: AuditOptions): Promise<AuditResult> {
 
   // Run plugin checks
   findings.push(...(await checkPlugins(config)));
+
+  // Run MCP server config checks (deep audit only)
+  if (options.deep) {
+    findings.push(...checkMcp(config));
+  }
 
   // Sort by severity (critical first, then warning, then info)
   const severityOrder = { critical: 0, warning: 1, info: 2 };
