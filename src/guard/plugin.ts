@@ -19,6 +19,40 @@ function buildPluginSource(securityDirective: string): string {
   const jsonEscaped = JSON.stringify(securityDirective);
 
   return `
+const _fs = require("fs");
+const _path = require("path");
+
+// --- Config hot-reload -------------------------------------------------
+// Reads lobstercage-config.json from the plugin directory on each hook
+// invocation (cached for 5 s to avoid excessive disk I/O).
+const CONFIG_PATH = _path.join(__dirname, "lobstercage-config.json");
+const CONFIG_CACHE_TTL_MS = 5000;
+let _cachedConfig = null;
+let _configReadAt = 0;
+
+function loadConfig() {
+  const now = Date.now();
+  if (_cachedConfig && now - _configReadAt < CONFIG_CACHE_TTL_MS) {
+    return _cachedConfig;
+  }
+  try {
+    const raw = _fs.readFileSync(CONFIG_PATH, "utf-8");
+    _cachedConfig = JSON.parse(raw);
+    _configReadAt = now;
+  } catch (_) {
+    // Config missing or unreadable — fall back to no overrides
+    if (!_cachedConfig) _cachedConfig = { version: 1, rules: {} };
+    _configReadAt = now;
+  }
+  return _cachedConfig;
+}
+
+function getRuleConfig(ruleId) {
+  const cfg = loadConfig();
+  return cfg && cfg.rules ? cfg.rules[ruleId] : undefined;
+}
+
+// --- Patterns -----------------------------------------------------------
 const PII_PATTERNS = {
   phone: [/\\+?\\d{1,3}[-.\\s]?\\(?\\d{1,4}\\)?[-.\\s]?\\d{1,4}[-.\\s]?\\d{1,9}/g],
   email: [/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}/g],
@@ -35,6 +69,15 @@ const PII_PATTERNS = {
     /\\bsk-ant-[a-zA-Z0-9_-]{5,}/g,
   ],
   password: [/\\b(?:password|passwd|secret|token|api_key|apikey|auth_token)[\\s]*[=:]\\s*["']?[^\\s"']{4,}/gi],
+};
+
+const DEFAULT_PII_ACTIONS = {
+  phone: "block",
+  email: "block",
+  ssn: "shutdown",
+  "credit-card": "shutdown",
+  "api-key": "block",
+  password: "block",
 };
 
 const CONTENT_PATTERNS = [
@@ -60,10 +103,28 @@ function luhnCheck(digits) {
   return sum % 10 === 0;
 }
 
+/** Check if a matched string is covered by a rule's allow-list */
+function isAllowed(matched, ruleId) {
+  const rc = getRuleConfig(ruleId);
+  if (!rc || !rc.allowPatterns || rc.allowPatterns.length === 0) return false;
+  for (const pattern of rc.allowPatterns) {
+    if (matched.indexOf(pattern) !== -1) return true;
+  }
+  return false;
+}
+
 function scanContent(content) {
   const violations = [];
 
   for (const [type, patterns] of Object.entries(PII_PATTERNS)) {
+    const ruleId = "pii-" + type;
+    const rc = getRuleConfig(ruleId);
+
+    // Skip disabled rules
+    if (rc && rc.enabled === false) continue;
+
+    const action = (rc && rc.action) || DEFAULT_PII_ACTIONS[type] || "block";
+
     for (const pattern of patterns) {
       const re = new RegExp(pattern.source, pattern.flags);
       let match;
@@ -75,24 +136,37 @@ function scanContent(content) {
         if (type === "phone") {
           if (match[0].replace(/\\D/g, "").length < 7) continue;
         }
-        violations.push({ ruleId: "pii-" + type, action: type === "ssn" || type === "credit-card" ? "shutdown" : "block", match: match[0] });
+        if (isAllowed(match[0], ruleId)) continue;
+        violations.push({ ruleId: ruleId, action: action, match: match[0] });
       }
     }
   }
 
-  for (const pattern of CONTENT_PATTERNS) {
-    const re = new RegExp(pattern.source, pattern.flags);
-    let match;
-    while ((match = re.exec(content)) !== null) {
-      violations.push({ ruleId: "content-injection", action: "block", match: match[0] });
+  {
+    const ruleId = "content-injection";
+    const rc = getRuleConfig(ruleId);
+    if (!(rc && rc.enabled === false)) {
+      const action = (rc && rc.action) || "block";
+      for (const pattern of CONTENT_PATTERNS) {
+        const re = new RegExp(pattern.source, pattern.flags);
+        let match;
+        while ((match = re.exec(content)) !== null) {
+          if (isAllowed(match[0], ruleId)) continue;
+          violations.push({ ruleId: ruleId, action: action, match: match[0] });
+        }
+      }
     }
   }
 
   for (const item of MALWARE_PATTERNS) {
+    const rc = getRuleConfig(item.id);
+    if (rc && rc.enabled === false) continue;
+    const action = (rc && rc.action) || item.action;
     const re = new RegExp(item.re.source, item.re.flags);
     let match;
     while ((match = re.exec(content)) !== null) {
-      violations.push({ ruleId: item.id, action: item.action, match: match[0] });
+      if (isAllowed(match[0], item.id)) continue;
+      violations.push({ ruleId: item.id, action: action, match: match[0] });
     }
   }
 
@@ -122,18 +196,13 @@ module.exports = {
   register(api) {
     try {
       // Hook 1: before_agent_start - Inject security directive (prevention layer)
-      // This prepends context to the system prompt to instruct the AI to avoid outputting PII
       api.on("before_agent_start", (event, ctx) => {
         return {
           prependContext: SECURITY_DIRECTIVE,
         };
       });
 
-      // Hook 2: message_sending - Block explicit message tool calls (existing behavior)
-      // Correct signature: (event, ctx) => result | void
-      // event: { to, content, metadata }
-      // ctx: { channelId, accountId, conversationId }
-      // result: { content?, cancel? }
+      // Hook 2: message_sending - Block explicit message tool calls (enforcement layer)
       api.on("message_sending", (event, ctx) => {
         const recipient = event.to || ctx.conversationId || "unknown";
         const content = typeof event.content === "string" ? event.content : JSON.stringify(event.content);
@@ -153,7 +222,6 @@ module.exports = {
       });
 
       // Hook 3: agent_end - Scan completed responses (detection layer)
-      // This cannot block delivery, but logs violations for auditing
       api.on("agent_end", (event, ctx) => {
         if (!event.success || !event.messages) return;
 
