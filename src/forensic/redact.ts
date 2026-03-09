@@ -176,12 +176,28 @@ export async function applyRedactions(
         const msgEntry = assistantMessages[violation.messageIndex];
         if (!msgEntry) continue;
 
-        const content = getMessageContent(msgEntry);
-        const redacted = redactContent(content, violation.ruleId);
+        const arrayContent = msgEntry.message?.content;
+        if (Array.isArray(arrayContent)) {
+          // Redact each text block independently so PII in any block is caught
+          let changed = false;
+          for (const block of arrayContent) {
+            if (block.text) {
+              const redacted = redactContent(block.text, violation.ruleId);
+              if (redacted !== block.text) {
+                block.text = redacted;
+                changed = true;
+              }
+            }
+          }
+          if (changed) redactedCount++;
+        } else {
+          const content = getMessageContent(msgEntry);
+          const redacted = redactContent(content, violation.ruleId);
 
-        if (redacted !== content) {
-          setMessageContent(msgEntry, redacted);
-          redactedCount++;
+          if (redacted !== content) {
+            setMessageContent(msgEntry, redacted);
+            redactedCount++;
+          }
         }
       }
 
