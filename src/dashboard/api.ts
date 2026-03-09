@@ -109,7 +109,6 @@ function sendJson(
 ): void {
   res.writeHead(status, {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
     ...headers,
   });
   res.end(JSON.stringify(data));
@@ -417,13 +416,9 @@ export async function handleApiRequest(
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const query = url.searchParams;
 
-  // Handle CORS preflight
+  // Respond to OPTIONS without CORS headers (same-origin only)
   if (req.method === "OPTIONS") {
-    res.writeHead(200, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    });
+    res.writeHead(204);
     res.end();
     return true;
   }
