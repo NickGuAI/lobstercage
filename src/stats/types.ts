@@ -29,6 +29,8 @@ export type StoredRule = {
   /** For custom rules */
   pattern?: string;
   keywords?: string[];
+  /** Per-rule allow-list: matches containing these strings are skipped */
+  allowPatterns?: string[];
 };
 
 export type RuleConfig = {
