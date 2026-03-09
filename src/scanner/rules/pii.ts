@@ -58,11 +58,11 @@ export const PII_PATTERNS: Record<string, RegExp[]> = {
 
 export function getPiiRules(): ScanRule[] {
   return [
-    { id: "pii-phone", category: "pii", enabled: true, action: "block", type: "phone" },
-    { id: "pii-email", category: "pii", enabled: true, action: "block", type: "email" },
-    { id: "pii-ssn", category: "pii", enabled: true, action: "shutdown", type: "ssn" },
-    { id: "pii-credit-card", category: "pii", enabled: true, action: "shutdown", type: "credit-card" },
+    { id: "pii-phone", category: "pii", enabled: true, action: "warn", type: "phone" },
+    { id: "pii-email", category: "pii", enabled: true, action: "warn", type: "email" },
+    { id: "pii-ssn", category: "pii", enabled: true, action: "block", type: "ssn" },
+    { id: "pii-credit-card", category: "pii", enabled: true, action: "block", type: "credit-card" },
     { id: "pii-api-key", category: "pii", enabled: true, action: "block", type: "api-key" },
-    { id: "pii-password", category: "pii", enabled: true, action: "block", type: "password" },
+    { id: "pii-password", category: "pii", enabled: true, action: "warn", type: "password" },
   ];
 }
