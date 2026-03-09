@@ -7,8 +7,8 @@ import {
   updateRule,
   addCustomRule,
   removeCustomRule,
+  buildScanRules,
 } from "../stats/rules-config.js";
-import { loadAllRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
 import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
 import type { StoredRule, ViolationEvent } from "../stats/types.js";
@@ -263,8 +263,8 @@ async function handleScan(
     scanInProgress = true;
     lastScanResult = null;
 
-    // Run forensic scan
-    const rules = await loadAllRules();
+    // Run forensic scan with user-configured rules
+    const rules = await buildScanRules();
     const report = await forensicScan(rules);
 
     // Record stats

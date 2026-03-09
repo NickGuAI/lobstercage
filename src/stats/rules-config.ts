@@ -1,6 +1,8 @@
 // Rule configuration management
 
 import { loadStats, saveStats } from "./storage.js";
+import { getPiiRules, getContentRules, getMalwareRules } from "../scanner/engine.js";
+import type { ScanRule } from "../scanner/types.js";
 import type { StoredRule, RuleConfig } from "./types.js";
 
 /** Default rule definitions */
@@ -99,4 +101,42 @@ export async function removeCustomRule(ruleId: string): Promise<void> {
 export async function getAllRules(): Promise<StoredRule[]> {
   const config = await loadRuleConfig();
   return [...config.rules, ...config.customRules];
+}
+
+/** Build ScanRule[] from built-in rules + stored overrides + custom rules */
+export async function buildScanRules(): Promise<ScanRule[]> {
+  const builtInRules = [...getPiiRules(), ...getContentRules(), ...getMalwareRules()];
+  const config = await loadRuleConfig();
+
+  // Apply stored overrides (enabled/action) to built-in rules
+  const rules: ScanRule[] = builtInRules.map((rule) => {
+    const override = config.rules.find((r) => r.id === rule.id);
+    if (override) {
+      return { ...rule, enabled: override.enabled, action: override.action };
+    }
+    return rule;
+  });
+
+  // Convert custom StoredRules to ScanRules
+  for (const custom of config.customRules) {
+    if (!custom.enabled) {
+      rules.push({
+        id: custom.id,
+        category: custom.category,
+        enabled: false,
+        action: custom.action,
+      });
+      continue;
+    }
+    rules.push({
+      id: custom.id,
+      category: custom.category,
+      enabled: custom.enabled,
+      action: custom.action,
+      patterns: custom.pattern ? [new RegExp(custom.pattern, "gi")] : [],
+      keywords: custom.keywords || [],
+    });
+  }
+
+  return rules;
 }

@@ -3,8 +3,8 @@ import { matrixFlow, printHeader, Spinner, style } from "../ui/matrix.js";
 import { renderReport, serializeReport } from "../ui/report.js";
 import { renderAuditReport, renderFixResults, serializeAuditReport } from "../ui/audit-report.js";
 import { confirm, reviewViolations, confirmRedactions } from "../ui/interactive.js";
-import { loadAllRules } from "../scanner/engine.js";
 import { forensicScan } from "../forensic/scan.js";
+import { buildScanRules } from "../stats/rules-config.js";
 import { applyRedactions } from "../forensic/redact.js";
 import { installGuard, uninstallGuard } from "../guard/install.js";
 import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
@@ -27,8 +27,7 @@ export type CatchOptions = {
 };
 
 async function loadRules(_configPath: string | null): Promise<ScanRule[]> {
-  // Load rules with dashboard config overrides applied
-  return loadAllRules();
+  return buildScanRules();
 }
 
 function countViolationsByRule(violations: ViolationEvent[]): ViolationEvent[] {
