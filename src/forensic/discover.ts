@@ -1,19 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { homedir } from "node:os";
-
-/** Get the OpenClaw state directory (respects OPENCLAW_STATE_DIR / CLAWDBOT_STATE_DIR env vars) */
-function getStateDir(): string {
-  const override =
-    process.env.OPENCLAW_STATE_DIR?.trim() || process.env.CLAWDBOT_STATE_DIR?.trim();
-  if (override) {
-    if (override.startsWith("~")) {
-      return override.replace(/^~(?=$|[\\/])/, homedir());
-    }
-    return override;
-  }
-  return join(homedir(), ".openclaw");
-}
+import { getStateDir } from "../audit/config-loader.js";
 
 /** Discover all session JSONL files under {stateDir}/agents/{id}/sessions/ */
 export async function discoverSessionFiles(): Promise<string[]> {
