@@ -10,7 +10,8 @@ export type CheckCategory =
   | "secrets"
   | "plugins"
   | "browser"
-  | "approval";
+  | "approval"
+  | "mcp";
 
 export type SecurityFinding = {
   id: string;
@@ -87,6 +88,26 @@ export type OpenClawConfig = {
     default?: string;
     provider?: string;
   };
+  mcp?: {
+    servers?: Record<string, McpServerConfig>;
+  };
+};
+
+export type McpServerConfig = {
+  /** Transport type: stdio, sse, or streamable-http */
+  transport?: "stdio" | "sse" | "streamable-http";
+  /** Command to spawn for stdio transport */
+  command?: string;
+  /** Arguments for the command */
+  args?: string[];
+  /** URL for SSE or streamable-http transport */
+  url?: string;
+  /** CORS headers / origin config */
+  headers?: Record<string, string>;
+  /** Access-Control-Allow-Origin setting */
+  accessControlAllowOrigin?: string;
+  /** Maximum response payload size in bytes (for prompt-injection detection) */
+  maxResponseBytes?: number;
 };
 
 export type ChannelConfig = {

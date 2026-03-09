@@ -95,8 +95,22 @@ async function applyFix(finding: SecurityFinding): Promise<FixResult> {
           return config;
         }, "Set logging.redactSensitive to 'on'");
 
-      // Channel policy fixes
+      // Channel policy fixes and MCP fixes
       default:
+        // MCP HTTP transport → HTTPS upgrade
+        if (finding.id.match(/^mcp-http-transport-(.+)$/)) {
+          const serverName = finding.id.match(/^mcp-http-transport-(.+)$/)?.[1];
+          if (serverName) {
+            return await patchConfig((config) => {
+              const server = config.mcp?.servers?.[serverName];
+              if (server?.url) {
+                server.url = server.url.replace(/^http:\/\//, "https://");
+              }
+              return config;
+            }, `Upgraded mcp.servers.${serverName}.url from http:// to https://`);
+          }
+        }
+
         if (finding.id.match(/^channel-(\w+)-dm-open$/)) {
           const channel = finding.id.match(/^channel-(\w+)-dm-open$/)?.[1];
           if (channel) {
