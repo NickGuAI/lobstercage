@@ -7,6 +7,7 @@ import { runMcpScan } from "../integrations/mcp-scan.js";
 import { appendApprovalLedgerEntry } from "../security/approval-ledger.js";
 import { hashDirectorySha256 } from "../security/integrity.js";
 import { resolveSkillInstallPath } from "../security/quarantine.js";
+import { scanSkillDirectory } from "../security/skill-scan.js";
 import { recordScanEvent } from "../stats/storage.js";
 import type { ViolationEvent } from "../stats/types.js";
 
@@ -104,6 +105,55 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
     acquired = await acquireSource(options.source, stagingRoot);
     console.log(style.green(`  ✓ Acquired ${acquired.skillName}`));
 
+    // ── Native scan (Lobstercage's own scanner engine) ──────────────
+    const nativeScanResult = await scanSkillDirectory(acquired.sourcePath, acquired.skillName);
+    const nativeScanClean = nativeScanResult.violations.length === 0;
+
+    if (nativeScanClean && nativeScanResult.errors.length === 0) {
+      console.log(style.green("  ✓ Native scan clean"));
+    } else {
+      if (nativeScanResult.violations.length > 0) {
+        console.log(style.warn(`  ⚠ Native scan flagged ${nativeScanResult.violations.length} violation(s):`));
+        const byRule = new Map<string, number>();
+        for (const v of nativeScanResult.violations) {
+          byRule.set(v.ruleId, (byRule.get(v.ruleId) ?? 0) + 1);
+        }
+        for (const [ruleId, count] of byRule.entries()) {
+          console.log(style.dim(`     ${ruleId}: ${count}`));
+        }
+      }
+      for (const err of nativeScanResult.errors) {
+        console.log(style.warn(`  ! Native scan error: ${err}`));
+      }
+    }
+
+    // Gate: abort on any malware finding (shutdown or block action)
+    const hasMalwareBlock = nativeScanResult.violations.some(
+      (v) => v.category === "malware" && (v.action === "shutdown" || v.action === "block")
+    );
+    if (hasMalwareBlock) {
+      console.log();
+      console.log(style.warn("  ✖ Install aborted: native scan detected malware in staged files"));
+      console.log(style.dim("  The skill was NOT installed. Review the source and try again."));
+      console.log();
+
+      // Record the abort event
+      const abortEvents: ViolationEvent[] = nativeScanResult.violations
+        .filter((v) => v.category === "malware")
+        .map((v) => ({
+          ruleId: v.ruleId,
+          category: v.category,
+          action: v.action,
+          count: 1,
+        }));
+      if (abortEvents.length > 0) {
+        await recordScanEvent("install-safe", abortEvents);
+      }
+      process.exitCode = 1;
+      return;
+    }
+
+    // ── External pre-scan (mcp-scan) ────────────────────────────────
     const preScan = await runMcpScan(acquired.sourcePath);
     if (!preScan.available) {
       console.log(style.warn(`  ! Pre-scan degraded: ${preScan.summary}`));
@@ -174,12 +224,25 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
     const integrity = await hashDirectorySha256(installPath);
     const canEnable =
       options.enable &&
+      nativeScanClean &&
       preScan.available &&
       postScan.available &&
       preScan.clean &&
       postScan.clean;
 
+    const nativeScanSummary = nativeScanClean
+      ? "clean"
+      : `${nativeScanResult.violations.length} violation(s)`;
+
     const installEvents: ViolationEvent[] = [];
+    if (!nativeScanClean) {
+      installEvents.push({
+        ruleId: "install-safe-native-scan-findings",
+        category: "malware" as const,
+        action: "block" as const,
+        count: nativeScanResult.violations.length,
+      });
+    }
     if (!preScan.available) {
       installEvents.push({
         ruleId: "install-safe-pre-scan-unavailable",
@@ -219,6 +282,11 @@ export async function runInstallSafe(options: InstallSafeOptions): Promise<void>
       source: options.source,
       installedPath: installPath,
       integrityHash: integrity.hash,
+      nativeScan: {
+        available: true,
+        clean: nativeScanClean,
+        summary: nativeScanSummary,
+      },
       preScan: {
         available: preScan.available,
         clean: preScan.clean,

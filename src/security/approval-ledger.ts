@@ -16,6 +16,7 @@ export type ApprovalLedgerEntry = {
   source: string;
   installedPath: string;
   integrityHash: string;
+  nativeScan: ApprovalScanSnapshot;
   preScan: ApprovalScanSnapshot;
   postScan: ApprovalScanSnapshot;
   approved: boolean;
