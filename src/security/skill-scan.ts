@@ -146,6 +146,74 @@ function isLikelyText(buffer: Buffer): boolean {
   return true;
 }
 
+export type DirectoryScanResult = {
+  violations: SkillViolation[];
+  errors: string[];
+};
+
+/**
+ * Scan a single directory for malware and content violations.
+ * Reusable core used by both scanInstalledSkills() and install-safe's
+ * native pre-install scan.
+ */
+export async function scanSkillDirectory(
+  dirPath: string,
+  skillName: string,
+  rules?: ScanRule[]
+): Promise<DirectoryScanResult> {
+  const effectiveRules = rules ?? [...getMalwareRules(), ...getContentRules()];
+  const violations: SkillViolation[] = [];
+  const errors: string[] = [];
+
+  let files: string[];
+  try {
+    files = await listFilesRecursive(dirPath);
+  } catch (error) {
+    errors.push(`Failed to scan ${skillName}: ${String(error)}`);
+    return { violations, errors };
+  }
+
+  for (const filePath of files) {
+    let info;
+    try {
+      // Use stat (not lstat) to get the real target size for symlinks
+      info = await stat(filePath);
+    } catch {
+      continue;
+    }
+    if (!info.isFile() || !shouldScanFile(filePath, info.size)) {
+      continue;
+    }
+
+    let buffer: Buffer;
+    try {
+      buffer = await readFile(filePath);
+    } catch {
+      continue;
+    }
+
+    if (!isLikelyText(buffer)) {
+      continue;
+    }
+
+    const content = buffer.toString("utf-8");
+    const fileViolations = scanContent(content, effectiveRules);
+    for (const violation of fileViolations) {
+      violations.push({
+        skillName,
+        skillPath: dirPath,
+        filePath,
+        ruleId: violation.ruleId,
+        category: violation.category,
+        action: violation.action,
+        matchPreview: violation.matchPreview,
+      });
+    }
+  }
+
+  return { violations, errors };
+}
+
 export async function scanInstalledSkills(options: SkillScanOptions): Promise<SkillScanReport> {
   const rules = options.rules ?? [...getMalwareRules(), ...getContentRules()];
   const report: SkillScanReport = {
@@ -159,67 +227,25 @@ export async function scanInstalledSkills(options: SkillScanOptions): Promise<Sk
 
   for (const skill of skills) {
     report.skillsScanned += 1;
-    const violations: SkillViolation[] = [];
 
-    try {
-      const files = await listFilesRecursive(skill.path);
-      for (const filePath of files) {
-        let info;
-        try {
-          // Use stat (not lstat) to get the real target size for symlinks
-          info = await stat(filePath);
-        } catch {
-          continue;
-        }
-        if (!info.isFile() || !shouldScanFile(filePath, info.size)) {
-          continue;
-        }
+    const result = await scanSkillDirectory(skill.path, skill.name, rules);
+    report.errors.push(...result.errors);
 
-        let buffer: Buffer;
-        try {
-          buffer = await readFile(filePath);
-        } catch {
-          continue;
-        }
-
-        if (!isLikelyText(buffer)) {
-          continue;
-        }
-
-        const content = buffer.toString("utf-8");
-        const fileViolations = scanContent(content, rules);
-        for (const violation of fileViolations) {
-          violations.push({
-            skillName: skill.name,
-            skillPath: skill.path,
-            filePath,
-            ruleId: violation.ruleId,
-            category: violation.category,
-            action: violation.action,
-            matchPreview: violation.matchPreview,
-          });
-        }
-      }
-    } catch (error) {
-      report.errors.push(`Failed to scan ${skill.name}: ${String(error)}`);
-      continue;
-    }
-
-    if (violations.length === 0) {
+    if (result.violations.length === 0) {
       continue;
     }
 
     const finding: SkillScanFinding = {
       skillName: skill.name,
       skillPath: skill.path,
-      violations,
+      violations: result.violations,
     };
 
     if (options.quarantine) {
       try {
         const quarantined = await quarantineSkill(
           skill.path,
-          violations.map((v) => v.ruleId),
+          result.violations.map((v) => v.ruleId),
           "Detected malware/content security violations during skill scan"
         );
         finding.quarantined = quarantined;
