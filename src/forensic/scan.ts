@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import type { ScanRule, SessionViolation, ScanReport } from "../scanner/types.js";
 import { scanContent } from "../scanner/engine.js";
-import { discoverSessionFiles } from "./discover.js";
+import { discoverSessionFiles, discoverAgentSessions } from "./discover.js";
 import { buildReport } from "./report.js";
 
 type MessageContent = {
@@ -46,7 +46,7 @@ function parseJsonl(text: string): JsonlEntry[] {
 function extractContent(entry: JsonlEntry): string {
   // OpenClaw format: { type: "message", message: { role, content } }
   const content = entry.message?.content ?? entry.content;
-  
+
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
@@ -56,26 +56,24 @@ function extractContent(entry: JsonlEntry): string {
   return "";
 }
 
-/** Run forensic scan across all discovered session files */
-export async function forensicScan(rules: ScanRule[]): Promise<ScanReport> {
-  const sessionFiles = await discoverSessionFiles();
+/** Scan a list of session files and return raw results */
+async function scanFiles(
+  files: string[],
+  rules: ScanRule[],
+): Promise<{ sessionsScanned: number; messagesScanned: number; violations: SessionViolation[] }> {
   const allViolations: SessionViolation[] = [];
   let totalMessages = 0;
   let sessionsScanned = 0;
 
-  for (let i = 0; i < sessionFiles.length; i++) {
-    const filePath = sessionFiles[i];
-
+  for (const filePath of files) {
     try {
       const text = await readFile(filePath, "utf-8");
       const entries = parseJsonl(text);
 
-      // Try to find session ID from header or filename
       const header = entries.find((e) => e.type === "session" || e.sessionId);
       const sessionId = header?.sessionId ?? basename(filePath, ".jsonl");
       const timestamp = header?.timestamp ?? "";
 
-      // Scan assistant messages (OpenClaw format: type=message with nested message.role)
       const messages = entries.filter(
         (e) => e.type === "message" && e.message?.role === "assistant"
       );
@@ -101,5 +99,48 @@ export async function forensicScan(rules: ScanRule[]): Promise<ScanReport> {
     }
   }
 
-  return buildReport(sessionsScanned, totalMessages, allViolations);
+  return { sessionsScanned, messagesScanned: totalMessages, violations: allViolations };
+}
+
+/** Run forensic scan across all discovered session files */
+export async function forensicScan(rules: ScanRule[]): Promise<ScanReport> {
+  const sessionFiles = await discoverSessionFiles();
+  const { sessionsScanned, messagesScanned, violations } = await scanFiles(sessionFiles, rules);
+  return buildReport(sessionsScanned, messagesScanned, violations);
+}
+
+export type AgentScanResult = {
+  agentId: string;
+  sessionsScanned: number;
+  messagesScanned: number;
+  violationCount: number;
+  violationsByRule: Record<string, number>;
+};
+
+/** Run forensic scan grouped by agent, optionally filtering by recency */
+export async function forensicScanByAgent(
+  rules: ScanRule[],
+  daysFilter?: number,
+): Promise<AgentScanResult[]> {
+  const agentSessions = await discoverAgentSessions(daysFilter);
+  const results: AgentScanResult[] = [];
+
+  for (const { agentId, sessionFiles } of agentSessions) {
+    const { sessionsScanned, messagesScanned, violations } = await scanFiles(sessionFiles, rules);
+
+    const violationsByRule: Record<string, number> = {};
+    for (const v of violations) {
+      violationsByRule[v.ruleId] = (violationsByRule[v.ruleId] ?? 0) + 1;
+    }
+
+    results.push({
+      agentId,
+      sessionsScanned,
+      messagesScanned,
+      violationCount: violations.length,
+      violationsByRule,
+    });
+  }
+
+  return results;
 }

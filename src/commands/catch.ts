@@ -11,6 +11,7 @@ import { runAudit, applyFixes, getFixableFindings } from "../audit/index.js";
 import { recordScanEvent } from "../stats/storage.js";
 import { scanInstalledSkills } from "../security/skill-scan.js";
 import { detectExtensionsIntegrityDrift, writeExtensionsBaseline } from "../security/integrity.js";
+import { loadPolicy, checkThresholds, type ThresholdBreach } from "../policy.js";
 import type { ScanRule, ScanReport } from "../scanner/types.js";
 import type { AuditResult } from "../audit/types.js";
 import type { ViolationEvent } from "../stats/types.js";
@@ -24,6 +25,7 @@ export type CatchOptions = {
   uninstall: boolean;
   reportPath: string | null;
   configPath: string | null;
+  json: boolean;
 };
 
 async function loadRules(_configPath: string | null): Promise<ScanRule[]> {
@@ -144,8 +146,10 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     return;
   }
 
-  await matrixFlow(1200);
-  printHeader();
+  if (!options.json) {
+    await matrixFlow(1200);
+    printHeader();
+  }
 
   const rules = await loadRules(options.configPath);
   const reportSections: string[] = [];
@@ -333,10 +337,76 @@ export async function runCatch(options: CatchOptions): Promise<void> {
     console.log();
   }
 
+  // Threshold checking
+  let thresholdBreaches: ThresholdBreach[] = [];
+  if (forensicReport) {
+    const policy = await loadPolicy();
+    thresholdBreaches = checkThresholds(policy, forensicReport.summary);
+  }
+
+  // JSON output mode
+  if (options.json) {
+    const jsonOutput: Record<string, unknown> = {
+      exitCode: thresholdBreaches.length > 0 ? 2 : 0,
+      thresholdBreaches,
+    };
+    if (auditResult) {
+      jsonOutput.audit = {
+        critical: auditResult.summary.critical,
+        warning: auditResult.summary.warning,
+        info: auditResult.summary.info,
+        findings: auditResult.findings.map((f) => ({
+          id: f.id,
+          severity: f.severity,
+          title: f.title,
+          fixable: f.fixable,
+        })),
+      };
+    }
+    if (forensicReport) {
+      jsonOutput.forensic = {
+        sessionsScanned: forensicReport.sessionsScanned,
+        messagesScanned: forensicReport.messagesScanned,
+        violations: forensicReport.violations.length,
+        violationsByRule: forensicReport.summary,
+      };
+    }
+    jsonOutput.skills = {
+      scanned: 0,
+      findings: skillFindings,
+      quarantined: quarantinedSkills,
+    };
+    jsonOutput.integrity = {
+      driftCount: integrityDriftCount,
+    };
+    console.log(JSON.stringify(jsonOutput, null, 2));
+
+    if (thresholdBreaches.length > 0) {
+      process.exitCode = 2;
+    }
+    return;
+  }
+
   if (options.reportPath && reportSections.length > 0) {
     await writeFile(options.reportPath, reportSections.join("\n\n" + "─".repeat(40) + "\n\n"), "utf-8");
     console.log(style.dim(`  Report saved to ${options.reportPath}`));
     console.log();
+  }
+
+  // Threshold alert banner
+  if (thresholdBreaches.length > 0) {
+    console.log(style.error("  ╔══════════════════════════════════════════════╗"));
+    console.log(style.error("  ║         THRESHOLD BREACH DETECTED           ║"));
+    console.log(style.error("  ╚══════════════════════════════════════════════╝"));
+    console.log();
+    for (const breach of thresholdBreaches) {
+      console.log(
+        style.error(`  ✗ ${breach.ruleId}`) +
+          style.dim(`: ${breach.actual} violations (threshold: ${breach.threshold}/day)`)
+      );
+    }
+    console.log();
+    process.exitCode = 2;
   }
 
   if (auditResult) {

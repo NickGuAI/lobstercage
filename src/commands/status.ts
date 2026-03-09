@@ -9,12 +9,15 @@ import {
 } from "../stats/storage.js";
 import { startDashboardServer, openBrowser } from "../dashboard/server.js";
 import { isInstalled as isGuardInstalled } from "../guard/install.js";
+import { getPiiRules, getContentRules, getMalwareRules } from "../scanner/engine.js";
+import { forensicScanByAgent, type AgentScanResult } from "../forensic/scan.js";
 
 export type StatusOptions = {
   json: boolean;
   dashboard: boolean;
   port: number;
   days: number;
+  byAgent: boolean;
 };
 
 /** Generate ASCII sparkline chart */
@@ -55,6 +58,66 @@ function formatNumber(n: number): string {
   if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(n);
+}
+
+/** Find the top rule by count from a violations-by-rule map */
+function topRule(violationsByRule: Record<string, number>): string | null {
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [ruleId, count] of Object.entries(violationsByRule)) {
+    if (count > bestCount) {
+      best = ruleId;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/** Render a per-agent breakdown table */
+function renderAgentTable(agents: AgentScanResult[]): void {
+  if (agents.length === 0) {
+    console.log(style.dim("  No agents found"));
+    console.log();
+    return;
+  }
+
+  // Calculate column widths
+  const agentCol = Math.max(6, ...agents.map((a) => a.agentId.length)) + 2;
+  const scansCol = Math.max(6, ...agents.map((a) => String(a.sessionsScanned).length)) + 2;
+  const violCol = Math.max(12, ...agents.map((a) => {
+    const top = topRule(a.violationsByRule);
+    const label = a.violationCount > 0 && top
+      ? `${a.violationCount} (${top})`
+      : String(a.violationCount);
+    return label.length;
+  })) + 2;
+
+  const hAgent = " Agent".padEnd(agentCol);
+  const hScans = " Scans".padEnd(scansCol);
+  const hViol = " Violations".padEnd(violCol);
+
+  // Box-drawing table
+  console.log(`  ╔${"═".repeat(agentCol)}╦${"═".repeat(scansCol)}╦${"═".repeat(violCol)}╗`);
+  console.log(`  ║${style.bold(hAgent)}║${style.bold(hScans)}║${style.bold(hViol)}║`);
+  console.log(`  ╠${"═".repeat(agentCol)}╬${"═".repeat(scansCol)}╬${"═".repeat(violCol)}╣`);
+
+  for (const agent of agents) {
+    const top = topRule(agent.violationsByRule);
+    const violLabel = agent.violationCount > 0 && top
+      ? `${agent.violationCount} (${top})`
+      : String(agent.violationCount);
+
+    const cAgent = ` ${agent.agentId}`.padEnd(agentCol);
+    const cScans = ` ${String(agent.sessionsScanned).padStart(scansCol - 2)} `;
+    const cViol = agent.violationCount > 0
+      ? ` ${style.warn(violLabel)}${" ".repeat(Math.max(0, violCol - violLabel.length - 1))}`
+      : ` ${violLabel}${" ".repeat(Math.max(0, violCol - violLabel.length - 1))}`;
+
+    console.log(`  ║${cAgent}║${cScans}║${cViol}║`);
+  }
+
+  console.log(`  ╚${"═".repeat(agentCol)}╩${"═".repeat(scansCol)}╩${"═".repeat(violCol)}╝`);
+  console.log();
 }
 
 /** Run status command */
@@ -104,9 +167,16 @@ export async function runStatus(options: StatusOptions): Promise<void> {
   const totalViolations = summaries.reduce((sum, s) => sum + s.totalViolations, 0);
   const dailyViolations = summaries.map((s) => s.totalViolations);
 
+  // Per-agent scan (needed for both --json and terminal --by-agent output)
+  let agentResults: AgentScanResult[] | null = null;
+  if (options.byAgent) {
+    const rules = [...getPiiRules(), ...getContentRules(), ...getMalwareRules()];
+    agentResults = await forensicScanByAgent(rules, options.days);
+  }
+
   // JSON output mode
   if (options.json) {
-    const output = {
+    const output: Record<string, unknown> = {
       guardInstalled,
       statsPath: getStatsPath(),
       period: {
@@ -118,6 +188,9 @@ export async function runStatus(options: StatusOptions): Promise<void> {
       topRules,
       recentEvents: stats.events.slice(-10),
     };
+    if (agentResults) {
+      output.agents = agentResults;
+    }
     console.log(JSON.stringify(output, null, 2));
     return;
   }
@@ -165,6 +238,13 @@ export async function runStatus(options: StatusOptions): Promise<void> {
       );
     }
     console.log();
+  }
+
+  // Per-agent breakdown
+  if (agentResults) {
+    console.log(style.dim(`  Per-agent breakdown (last ${options.days} days):`));
+    console.log();
+    renderAgentTable(agentResults);
   }
 
   // Hints
